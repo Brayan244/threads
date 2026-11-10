@@ -2,7 +2,7 @@
 
 ## Host operations
 
-Pi uses the extension's tools; Codex runs the configured `threads` launcher from its **current shell tool execution**. If no launcher is installed, use `python3` with the known absolute path to the source checkout's `bin/threads`. Resolve the actual installation first; a copied skill directory alone is not an executable installation. Run that CLI's `--help` for the authoritative v1 schema and bounds. Commands return one JSON envelope: `contract_version: 1`, `ok`, and `result` or `error`; only exit 0 with `ok: true` confirms success.
+Pi uses the extension's tools; Codex runs the configured `threads` launcher from its **current shell tool execution**. If no launcher is installed, use `node` (24.15.0+) with the known absolute path to the source checkout's `bin/threads`. Resolve the actual installation first; a copied skill directory alone is not an executable installation. Run that CLI's `--help` for the authoritative v1 schema and bounds. Commands return one JSON envelope: `contract_version: 1`, `ok`, and `result` or `error`; only exit 0 with `ok: true` confirms success.
 
 | Intent | Pi | CLI |
 | --- | --- | --- |

@@ -22,16 +22,27 @@ A thread follows a piece of work across sessions, issues and pull requests. It s
 | `herdr/mods/threads/` | Native tree and reading view |
 | `scripts/` | Explicit-root installation and read-only diagnostics |
 
+## Requirements
+
+**Herdr + Node.js 24.15.0 or newer.** No Python, npm packages, database server or native addon build is required. SQLite comes with Node. The supported filesystem model is macOS/Linux with owner-only POSIX permissions.
+
+Pi and Codex are optional integrations. Herdr mods use Herdr's native GPUI JavaScript runtime—not Node; the CLI, persistence, installer and diagnostics run in Node.
+
 ## Development
 
-Python 3.11+ uses only the standard library. JavaScript tests require Node 24+ and installed Pi/Herdr contracts. They do not install dependencies or launch model sessions.
+Core, CLI, migration and installation checks need only Node:
 
 ```sh
-python3 -m unittest discover -s tests -p 'test_*.py'
+node --test tests/core.test.mjs tests/cli.test.mjs tests/migration.test.mjs tests/install.test.mjs
+```
+
+The full suite additionally uses installed Pi and Herdr contracts, without downloading dependencies or launching model sessions:
+
+```sh
 node --test tests/*.test.mjs
 ```
 
-Latest focused verification: **69 Node tests and 31 installer tests passed**, plus isolated native renderer checks. These results do not certify every interactive host behavior. See [compatibility](docs/compatibility.md).
+Checks cover legacy SQLite compatibility, idempotency, multiprocess writes, installation fault recovery and native UI behavior. Fixtures do not certify every interactive host behavior. See [compatibility](docs/compatibility.md).
 
 ## Install deliberately
 
@@ -40,12 +51,12 @@ Read [usage](docs/usage.md) and [compatibility](docs/compatibility.md) before in
 The installer requires explicit absolute roots and an initialized Herdr home. It natively clones the selected layout **and switches to the clone**. It does not edit shipped originals, copy credentials, change approval policies or start agents. Start with an approved isolated environment.
 
 ```sh
-python3 scripts/doctor.py \
+node scripts/doctor.mjs \
   --home /absolute/approved/home \
   --herdr-home /absolute/approved/herdr-home
 ```
 
-`bin/threads --help` describes the checkout-local CLI. Installed launchers pin one history directory across integrations. Removal preserves history, evidence and edited resources.
+`node bin/threads --help` describes the checkout-local CLI. Installed launchers pin one history directory across integrations. Removal preserves history, evidence and edited resources. Existing Python installations require the inspected [migration procedure](docs/usage.md#replace-a-python-installation); they are not silently overwritten.
 
 ## Status
 

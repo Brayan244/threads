@@ -389,14 +389,14 @@ test('real CLI keyset pages keep refreshed arrivals reachable alongside an unfin
   try {
     const cli = fileURLToPath(new URL('../bin/threads', import.meta.url)), dataDir = join(temp, 'data');
     const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }; delete env.CODEX_THREAD_ID;
-    const record = (sequence, thread_id) => JSON.parse(execFileSync('python3', [cli, '--data-dir', dataDir,
+    const record = (sequence, thread_id) => JSON.parse(execFileSync(process.execPath, [cli, '--data-dir', dataDir,
       '--pi-session-id', A, '--pi-session-ref', join(temp, 'fixture.jsonl'), 'record'], { env, timeout: 10000,
       input: JSON.stringify({ operation_key: `list-${sequence}`, kind: 'progress', body: 'Isolated fixture',
         ...(thread_id ? { thread_id } : {}) }), encoding: 'utf8' })).result.event;
     const ids = [];
     for (let sequence = 1; sequence <= 45; sequence++) ids.push(record(sequence).thread_id);
     const model = new ThreadsModel(createClient(async (command, args) => ({ code: 0, stderr: '', stdout:
-      execFileSync('python3', [command, ...args], { env, timeout: 10000, encoding: 'utf8' }) }), { cli, dataDir }));
+      execFileSync(process.execPath, [command, ...args], { env, timeout: 10000, encoding: 'utf8' }) }), { cli, dataDir }));
     await model.refresh(); await model.refresh(true);
     const order = model.threads.map(row => row.id);
     for (let sequence = 46; sequence <= 70; sequence++) ids.push(record(sequence).thread_id);
@@ -417,7 +417,7 @@ test('real CLI -> client -> model uses isolated data, aggregate session counts a
     const root = fileURLToPath(new URL('../', import.meta.url));
     const cli = join(root, 'bin/threads');
     const env = { ...process.env }; delete env.CODEX_THREAD_ID;
-    const record = (key, changes = {}) => JSON.parse(execFileSync('python3', [cli, '--data-dir', join(temp, 'data'),
+    const record = (key, changes = {}) => JSON.parse(execFileSync(process.execPath, [cli, '--data-dir', join(temp, 'data'),
       '--pi-session-id', A, '--pi-session-ref', join(temp, 'fixture.jsonl'), 'record'], { env, timeout: 10000,
       input: JSON.stringify({ operation_key: key, kind: 'progress', body: 'Fixture', ...changes }), encoding: 'utf8' })).result.event;
     const target = { object_id: 'plan', version: 'v1', digest: 'sha256:fixture-v1' };
@@ -425,7 +425,7 @@ test('real CLI -> client -> model uses isolated data, aggregate session counts a
       evidence: [{ kind: 'document', reference: '/tmp/fixture-plan.md', target, availability: 'available' }] });
     record('second', { thread_id: first.thread_id, evidence: [{ kind: 'document', reference: '/tmp/fixture-plan.md',
       target: { ...target, version: 'v2', digest: 'sha256:fixture-v2' }, availability: 'unknown' }] });
-    const client = createClient(async (command, args) => ({ code: 0, stderr: '', stdout: execFileSync('python3',
+    const client = createClient(async (command, args) => ({ code: 0, stderr: '', stdout: execFileSync(process.execPath,
       [command, ...args], { input: '', env, timeout: 10000, encoding: 'utf8' }) }), { cli, dataDir: join(temp, 'data') });
     const model = new ThreadsModel(client);
     await model.refresh();
@@ -441,7 +441,7 @@ test('real CLI -> client -> model uses isolated data, aggregate session counts a
     assert.equal(model.isSeen(first.thread_id, first.sequence), false);
     await model.toggleReferences(first.thread_id, 'session');
     assert.equal(model.sessions.get(first.thread_id).items.length, 1);
-    execFileSync('python3', [cli, '--data-dir', join(temp, 'data'), '--pi-session-id', B, '--pi-session-ref',
+    execFileSync(process.execPath, [cli, '--data-dir', join(temp, 'data'), '--pi-session-id', B, '--pi-session-ref',
       join(temp, 'second-fixture.jsonl'), 'associate'], { env, timeout: 10000, encoding: 'utf8',
       input: JSON.stringify({ thread_id: first.thread_id, operation_key: 'second-origin' }) });
     await model.refresh();

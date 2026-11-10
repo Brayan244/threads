@@ -1,0 +1,151 @@
+{
+  "request": {
+    "kind": "progress",
+    "body": "Se registró el avance. Café y 🚌.",
+    "origin": {
+      "agent": "pi",
+      "session_id": "11111111-1111-4111-8111-111111111111",
+      "session_ref": "/tmp/threads-fixture/pi.jsonl"
+    },
+    "operation_key": "legacy-create",
+    "thread_id": null,
+    "title": "Trabajo legado",
+    "summary": null,
+    "references": [
+      {
+        "kind": "issue",
+        "reference": "DEMO-1"
+      }
+    ],
+    "retained": null,
+    "evidence": [],
+    "review": null,
+    "validation": null
+  },
+  "export": {
+    "associations": [
+      {
+        "operation_key": "legacy-create",
+        "origin": {
+          "agent": "pi",
+          "session_id": "11111111-1111-4111-8111-111111111111",
+          "session_ref": "/tmp/threads-fixture/pi.jsonl"
+        },
+        "received_at": "2026-01-01T00:00:00.000000+00:00",
+        "sequence": 1,
+        "source": "record",
+        "thread_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+      },
+      {
+        "operation_key": "legacy-validation",
+        "origin": {
+          "agent": "codex",
+          "session_id": "22222222-2222-4222-8222-222222222222",
+          "session_ref": "file:///tmp/threads-fixture/codex#thread=22222222-2222-4222-8222-222222222222"
+        },
+        "received_at": "2026-01-01T00:00:01.000000+00:00",
+        "sequence": 2,
+        "source": "record",
+        "thread_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+      }
+    ],
+    "current_associations": [
+      {
+        "operation_key": "legacy-create",
+        "origin": {
+          "agent": "pi",
+          "session_id": "11111111-1111-4111-8111-111111111111",
+          "session_ref": "/tmp/threads-fixture/pi.jsonl"
+        },
+        "received_at": "2026-01-01T00:00:00.000000+00:00",
+        "sequence": 1,
+        "source": "record",
+        "thread_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+      },
+      {
+        "operation_key": "legacy-validation",
+        "origin": {
+          "agent": "codex",
+          "session_id": "22222222-2222-4222-8222-222222222222",
+          "session_ref": "file:///tmp/threads-fixture/codex#thread=22222222-2222-4222-8222-222222222222"
+        },
+        "received_at": "2026-01-01T00:00:01.000000+00:00",
+        "sequence": 2,
+        "source": "record",
+        "thread_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+      }
+    ],
+    "events": [
+      {
+        "body": "Se registró el avance. Café y 🚌.",
+        "evidence": [],
+        "kind": "progress",
+        "operation_key": "legacy-create",
+        "origin": {
+          "agent": "pi",
+          "session_id": "11111111-1111-4111-8111-111111111111",
+          "session_ref": "/tmp/threads-fixture/pi.jsonl"
+        },
+        "received_at": "2026-01-01T00:00:00.000000+00:00",
+        "references": [
+          {
+            "kind": "issue",
+            "reference": "DEMO-1"
+          }
+        ],
+        "retained": null,
+        "review": null,
+        "sequence": 1,
+        "summary": null,
+        "thread_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "title": "Trabajo legado",
+        "validation": null
+      },
+      {
+        "body": "Validación de fixture, no sesión real.",
+        "evidence": [],
+        "kind": "validation",
+        "operation_key": "legacy-validation",
+        "origin": {
+          "agent": "codex",
+          "session_id": "22222222-2222-4222-8222-222222222222",
+          "session_ref": "file:///tmp/threads-fixture/codex#thread=22222222-2222-4222-8222-222222222222"
+        },
+        "received_at": "2026-01-01T00:00:01.000000+00:00",
+        "references": null,
+        "retained": null,
+        "review": null,
+        "sequence": 2,
+        "summary": null,
+        "thread_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "title": null,
+        "validation": {
+          "outcome": "passed",
+          "target": {
+            "digest": null,
+            "object_id": "plan",
+            "version": "v1"
+          }
+        }
+      }
+    ],
+    "schema_version": 2,
+    "threads": [
+      {
+        "event_count": 2,
+        "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "latest_sequence": 2,
+        "received_at": "2026-01-01T00:00:01.000000+00:00",
+        "references": [
+          {
+            "kind": "issue",
+            "reference": "DEMO-1"
+          }
+        ],
+        "retained": false,
+        "summary": "Validación de fixture, no sesión real.",
+        "title": "Trabajo legado"
+      }
+    ]
+  }
+}

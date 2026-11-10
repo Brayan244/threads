@@ -1,0 +1,13 @@
+{
+  "name": "threads-local",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local, append-only work threads for Herdr and coding agents",
+  "engines": { "node": ">=24.15.0" },
+  "bin": { "threads": "bin/threads" },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "doctor": "node scripts/doctor.mjs"
+  }
+}

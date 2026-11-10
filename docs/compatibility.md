@@ -6,11 +6,12 @@ Threads is an experimental local MVP. A passing fixture, static check or doctor 
 
 | Component | Requirement / observed version |
 | --- | --- |
-| Python | Core minimum 3.11; recent checks used 3.14.7 and SQLite 3.53.4 |
-| Node | Node 24+ for the JavaScript test setup; recent checks used 24.15.0 |
-| Pi | Installed extension loader and SessionManager contracts; recently checked with 0.87.1 |
-| Codex | Current-shell runtime identity for CLI writes; recent host inspection used 0.166.0 |
-| Herdr | Native GPUI mod contracts; recent renderer checks used app 0.1.14 |
+| Node | 24.15.0+ with built-in `node:sqlite`; the Node port was checked with 24.15.0 / SQLite 3.51.3 |
+| Herdr | Required native GPUI mod host; renderer contracts checked with app 0.1.14 |
+| Pi (optional) | Installed extension loader and SessionManager contracts; checked with 0.87.1 |
+| Codex (optional) | Current-shell runtime identity for CLI writes; prior host inspection used 0.166.0 |
+
+Only Herdr and Node are installation/runtime prerequisites. There are no npm dependencies, Python helpers or native addon builds. macOS/Linux owner-only POSIX storage is supported; Windows permissions and launcher behavior have not been ported. Herdr's mod runtime remains native GPUI JavaScript, not Node.
 
 These are observations, not a support matrix or a compatibility guarantee for every host configuration. No standalone lint or typecheck command is configured.
 
@@ -26,15 +27,15 @@ Latest-page updates are newest-first. Stable element IDs reduce avoidable moveme
 
 ## Available verification
 
-The latest focused run passed **69 Node tests and 31 installer tests**, plus four isolated native renderer checks. Coverage includes:
+Run the Node suites described in the README. Coverage includes:
 
-1. CLI/storage boundaries, Pi loader/schema behavior and runtime-identity failure handling.
+1. CLI/storage boundaries, legacy Python-created SQLite replay, schema v1 upgrade, full-width cursors, multiprocess initialization/writes and fresh runtime identity.
 2. Installer ownership, collisions, reinstall/removal and preservation of unrelated configuration/history.
 3. Reader navigation, stale tab registration, return behavior and inactive-tab polling suppression.
 4. Explicit read-marker validation and monotonic sharing, future arrivals, no-op polling and last-good data.
 5. Native initial descriptions for unread/read tree and reading states.
 
-Python domain/CLI tests are also included. Run the commands in the README for the available suite; no historical transcripts or private verification artifacts are distributed here.
+The synthetic schema-v2 SQL/JSON fixture was produced by the previous Python store; current tests load it using Node only. It contains no real session data. Installed-runtime journeys restrict PATH to Node and a simulated Herdr executable, proving that launchers, Pi's installed bridge and diagnostics do not need Python. No historical transcripts or private verification artifacts are distributed here.
 
 `herdr-app check <mod-folder>` validates initial native descriptions, not actual geometry, deferred interaction, scrolling, focus or hit testing. Installation tests use temporary HOME directories and a simulated native clone command; they do not install into personal configuration.
 
@@ -55,12 +56,12 @@ The [skill scenarios](../tests/skill-scenarios.md) provide the behavioral protoc
 ## Read-only doctor
 
 ```sh
-python3 scripts/doctor.py \
+node scripts/doctor.mjs \
   --home /absolute/approved/home \
   --herdr-home /absolute/approved/herdr-home \
   --layout main
 ```
 
-Doctor checks the ownership manifest, recorded file hashes/modes, storage permissions, executable presence and bounded version probes. It does not open or migrate the database, invoke agents, run a native clone, repair permissions or certify sandbox access.
+Doctor checks the ownership manifest, recorded file hashes/modes, storage permissions, executable presence and bounded version probes. Node and Herdr are required; absent Pi/Codex executables do not fail installation diagnostics. Legacy Python manifests are inspectable without Python, but are not reported as an intact Node installation. It does not open or migrate the database, invoke agents, run a native clone, repair permissions or certify sandbox access.
 
 A zero exit means those static checks passed. Inspect recovery state before retrying any failed installation; do not erase a journal or overwrite edited resources to force success.

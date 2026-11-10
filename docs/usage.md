@@ -2,6 +2,8 @@
 
 ## Install only into an approved explicit root
 
+Install Node.js **24.15.0+** and Herdr first. Python, npm dependencies and a separate SQLite installation are not needed. Pi and Codex are optional; the installer places their integrations but never installs or starts those hosts. Use a macOS/Linux filesystem with POSIX ownership and permissions.
+
 Do not use your personal HOME as a fixture. The live host procedure in [compatibility.md](compatibility.md) requires operator approval first. Tests initialize their own simulated Herdr home; the installer itself does not launch Herdr, install dependencies or create work history.
 
 With an approved, already-running Herdr instance whose initialized home is `HERDR_ROOT`:
@@ -11,10 +13,10 @@ With an approved, already-running Herdr instance whose initialized home is `HERD
 THREADS_HOME=/absolute/approved/home
 HERDR_ROOT=/absolute/approved/herdr-home
 HERDR_COMMAND=/absolute/resolved/path/to/herdr-app
-python3 scripts/install.py install \
+node scripts/install.mjs install \
   --home "$THREADS_HOME" --herdr-home "$HERDR_ROOT" \
   --herdr-command "$HERDR_COMMAND" --layout main
-python3 scripts/doctor.py --home "$THREADS_HOME" --herdr-home "$HERDR_ROOT"
+node scripts/doctor.mjs --home "$THREADS_HOME" --herdr-home "$HERDR_ROOT"
 ```
 
 `--herdr-command` must name a regular executable, not a symlink; resolve the installed launcher with `realpath "$(command -v herdr-app)"`. The chosen source must be a nonempty row-root layout with unique IDs and an existing left `sidebar` column containing adjacent `spaces` then `agents` sections, such as the observed shipped `main`. The sections may be nested in its `sidebar-lists` column. Unsupported structures fail before cloning or switching; the installer never falls back to adding another sidebar. Collisions, symlinks inside either root, inaccessible parents or invalid manifests stop installation rather than rewrite configuration. Custom Pi resource-root overrides are not configured by this installer; use the documented default discovery directories or explicitly load the installed extension/skill in an approved session.
@@ -33,7 +35,7 @@ The native operation is exactly `herdr-app do layout.clone '{"name":"main","as":
 
 Ownership and file hash/mode records live at `HOME/.local/state/threads-install/manifest.json`. The five authored mod files are copied; generated `.d.ts`/`jsconfig.json` are not. The installer never copies symlink targets, edits host settings, adds hooks or changes trust/approval policies. Herdr executes only bounded read commands through the configured launcher; explicit evidence opening uses Dia for http(s) URLs and Finder reveal for local files. Missing Dia is an error, not permission to pick another application.
 
-History is pinned to `HOME/.local/share/threads/` for **all three consumers**, regardless of ambient `XDG_DATA_HOME`. It is created owner-only by the first CLI read/write, not by installation. The installed runtime has its own Python modules and bridge; it does not depend on the checkout staying in place for everyday use. Keep this checkout for installer/removal operations. The installer uses the Python interpreter that ran it; that interpreter and `python3` for Pi's bridge must remain available and be 3.11+.
+History is pinned to `HOME/.local/share/threads/` for **all three consumers**, regardless of ambient `XDG_DATA_HOME`. It is created owner-only by the first CLI read/write, not by installation. The installed runtime has its own Node modules and bridge; it does not depend on the checkout staying in place for everyday use. Keep this checkout for installer/removal operations. Installed launchers use `node` on the host's PATH, which must be 24.15.0+. Pi's bridge uses its own current Node executable directly, with no Python or shell subprocess.
 
 ## Start and continue meaningful work
 
@@ -41,6 +43,8 @@ History is pinned to `HOME/.local/share/threads/` for **all three consumers**, r
 2. Work normally. A greeting, brief answer or mechanical tool call is not a milestone. For a substantive finding, the skill first consults current association, bounded summaries and plausible candidate context. It creates a new thread only together with its first meaningful record, with no per-milestone confirmation prompt.
 3. To resume, ask “revisa los threads y continúa con esto” with the work's goal/evidence. The agent chooses continuity deliberately and associates its own current session. A shared directory or title alone is not enough. Ambiguous intent needs one clarification; there is no repo-global active thread.
 4. To retain a temporary thread explicitly, ask the agent to retain that work. Its next substantive `record` can include `"retained": true` and the selected `thread_id`. Retention never enables automatic deletion; removal of the integration never deletes temporary or retained history.
+
+After replacing Pi integration files, run `/reload` in Pi. The native bridge loader versions imports by bridge content so reload does not retain an older `.mjs` implementation.
 
 Pi writes only through its runtime tools, which take fresh SessionManager identity. Codex invokes `threads` from its **current shell execution**, using the real `CODEX_THREAD_ID`; never set that variable yourself or copy another session's identity. Missing or ambiguous provenance blocks capture. For an approved Codex session, allow the pinned history directory through the normal supported directory-access/approval mechanism when required. Do not disable sandboxing, approvals or hook trust. Report a blocked prerequisite once; do not claim a failed write was saved.
 
@@ -54,7 +58,7 @@ Pi writes only through its runtime tools, which take fresh SessionManager identi
 
 Pi's `threads_list` and `threads_show` tools accept **1–20 items per page**, including when `include_references` is true. Omitting the limit reads 20 summaries or 10 events. Follow `next_before_sequence` to continue; larger tool limits fail schema validation. This Pi-only budget keeps accepted Unicode/escape-heavy CLI records, metadata and inherited reference snapshots below the bridge's unchanged 16 MiB subprocess ceiling. The standalone CLI still permits list pages of 100 and show/events pages of 200. Large Pi results remain available in structured tool details even when their model-facing text is omitted. Isolated loader/CLI fixtures verify this budget, not real-host compatibility.
 
-Use the returned `next_before_sequence` for older list/show pages; events use `next_after_sequence`. `--include-origin` on events/show is an explicit private attribution audit. References are hidden by default; evidence remains with its event. `sessions THREAD_ID` exposes attributed session locators, not a promise that a host can reopen a transcript. The CLI has no unbounded export command; the Python library's explicit `Store.export_json()` is available for an authorized full export.
+Use the returned `next_before_sequence` for older list/show pages; events use `next_after_sequence`. `--include-origin` on events/show is an explicit private attribution audit. References are hidden by default; evidence remains with its event. `sessions THREAD_ID` exposes attributed session locators, not a promise that a host can reopen a transcript. The CLI has no unbounded export command; the Node library's explicit `Store.exportJson()` is available for an authorized full export.
 
 In Herdr's embedded `section` role, Threads uses **compact 30px rows** aligned with Spaces and Agents, not summary cards. A **▸ / ▾ chevron** (accessible label and tooltip: Historial) expands each mini timeline; a separate **› control** (Ver detalle) opens the selected history **in a native Threads reading tab in the central workspace**. The left tree remains visible and retains its expanded histories. Titles and row bodies do not navigate. The quiet number beside a title counts **recorded advances**, not unread or approved work. A reserved dot shows the latest known advance in soft theme red while unread. **✓** marks that thread through its latest known sequence, including older pages; later advances remain unread. The same control is available in the reading header. Opening content and hovering do not mark it read, and reading is never review or approval.
 
@@ -82,12 +86,23 @@ Installer errors return exit 1/`ok: false`. Inspect the journal before retrying.
 - `rolled_back`: confirmed unchanged resources were removed after a later failure. Native selection/click-state effects can remain. Run removal to retire the journal after inspecting/switching away normally.
 - Edited or unexpected files survive removal. The journal remains for unresolved owned edits; user-added files/directories are never recursively cleaned. A partial file or staging file after an interrupted write may also require manual inspection. No automatic repair changes permissions.
 
+## Replace a Python installation
+
+The database remains at the same pinned location and uses the same schema v2, event IDs, canonical requests and operation-key namespaces. Node opens it in place. A v1 database is upgraded transactionally to v2 without inventing current session associations; this migration does not introduce a new schema version.
+
+1. Stop active writers and switch Herdr away from the Threads layout using its normal selector.
+2. Run the Node removal command below with the original explicit roots/layout. It recognizes legacy Python ownership fingerprints without executing Python. Inspect preserved edits, unconfirmed clones or pending journal files before continuing; never erase the journal to force replacement.
+3. Run the Node installation command above against those same roots. It retains the database and creates a fresh owned integration; native cloning switches the approved window to its clone.
+4. Reload the optional Pi integration and run the Node doctor. Verify bounded history and current-session attribution before resuming writers. Static diagnostics do not certify live-host behavior.
+
+No updater copies private history into the checkout, clears session associations, repairs permissions or overwrites edited files. Removal does not delete history.
+
 ## Remove the integration, not the data
 
 First use the approved Herdr window's normal layout selector to switch away from `threads-main`. Removal intentionally does **not** switch the current window or edit native `.state` files.
 
 ```sh
-python3 scripts/install.py remove \
+node scripts/install.mjs remove \
   --home "$THREADS_HOME" --herdr-home "$HERDR_ROOT" --layout main
 ```
 

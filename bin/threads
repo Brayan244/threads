@@ -1,9 +1,6 @@
-#!/usr/bin/env python3
-"""Checkout-local entry point; no installation or third-party dependencies."""
-from pathlib import Path
-import sys
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from threads.cli import main
-
-raise SystemExit(main())
+#!/usr/bin/env node
+// Dynamic import also works when this executable has no package.json parent.
+import('../src/threads/cli.mjs').then(({main})=>main()).then(
+  status=>{process.exitCode=status;},
+  ()=>{process.stdout.write('{"contract_version":1,"ok":false,"error":{"code":"storage_error","message":"Cannot load local Threads runtime.","retryable":false}}\n');process.exitCode=6;},
+);

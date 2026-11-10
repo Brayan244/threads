@@ -1,6 +1,6 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { runThreads } from "./cli.mjs";
+import { loadBridge } from "./bridge-loader.mjs";
 
 const text = (maximum = 2048) => Type.String({ minLength: 1, maxLength: maximum });
 const nullable = <T extends ReturnType<typeof text>>(schema: T) => Type.Union([schema, Type.Null()]);
@@ -77,7 +77,10 @@ function readArgs(command: string, args: Record<string, unknown>) {
   return argv;
 }
 
-export default function threads(pi: ExtensionAPI) {
+export default async function threads(pi: ExtensionAPI) {
+  // Pi reloads factories, but Node caches native ESM dependencies by URL.
+  // Version only the trusted bridge code; runtime identity stays per execution.
+  const { runThreads } = await loadBridge();
   pi.registerTool(defineTool({
     name: "threads_list", label: "Threads: list",
     description: "Read up to 20 thread summaries per page before choosing continuity. Filter by exact issue/PR/session reference or current session; page with before_sequence. No automatic merging by directory.",

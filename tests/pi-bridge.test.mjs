@@ -1,9 +1,10 @@
 // Installed Pi loader + synthetic execution contexts + real CLI/temporary SQLite.
 // These are integration fixtures, not live-agent semantic or provenance evidence.
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import childProcess, { execFileSync } from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -19,12 +20,10 @@ while (!existsSync(join(piRoot, 'package.json')) ||
   assert.notEqual(dirname(piRoot), piRoot, 'Cannot locate the installed Pi package.');
   piRoot = dirname(piRoot);
 }
-const { loadExtensions } = await import(pathToFileURL(join(piRoot, 'dist/core/extensions/loader.js')));
+const { loadExtensions, clearExtensionCache } = await import(pathToFileURL(join(piRoot, 'dist/core/extensions/loader.js')));
 const { validateToolArguments } = await import(pathToFileURL(
   join(piRoot, 'node_modules/@earendil-works/pi-ai/dist/index.js')));
-const python = (process.env.PATH ?? '').split(delimiter)
-  .map(path => join(path, 'python3')).find(path => existsSync(path));
-assert.ok(python, 'Python 3 is required.');
+const node = process.execPath;
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
 let temp, extension, loadErrors;
@@ -62,19 +61,19 @@ function draft(operation_key, changes = {}) {
   return { kind: 'progress', body: 'Fixture investigation found a reproducible failure.', operation_key, ...changes };
 }
 function cli(args, input, env = {}) {
-  return JSON.parse(execFileSync(python, [join(root, 'bin/threads'), ...args], {
+  return JSON.parse(execFileSync(node, [join(root, 'bin/threads'), ...args], {
     input: input === undefined ? '' : JSON.stringify(input), encoding: 'utf8',
     env: { ...process.env, ...env }, timeout: 10000, maxBuffer: 16 * 1024 * 1024,
   }));
 }
-async function fakePython(source, action) {
-  const directory = await mkdtemp(join(temp, 'fake-python-'));
-  const executable = join(directory, 'python3');
-  await writeFile(executable, `#!${process.execPath}\n${source}\n`);
-  await chmod(executable, 0o700);
-  const previous = process.env.PATH;
-  process.env.PATH = directory;
-  try { return await action(); } finally { process.env.PATH = previous; }
+async function fakeNode(source, action) {
+  const directory = await mkdtemp(join(temp, 'fake-node-'));
+  const executable = join(directory, 'fixture.cjs');
+  await writeFile(executable, source+'\n');
+  const previous = childProcess.spawn;
+  childProcess.spawn = (_command, args, options) => previous(node, [executable, ...args], options);
+  syncBuiltinESMExports();
+  try { return await action(); } finally { childProcess.spawn = previous; syncBuiltinESMExports(); }
 }
 
 test('registers only explicit domain tools; loading does not create data or hooks', () => {
@@ -158,18 +157,16 @@ test('missing, invalid, ambiguous or failing runtime identity never confirms a w
 
 test('async spawn and child failures reject, redact diagnostics, and allow identical retry', async () => {
   const payload = draft('async-retry');
-  const previous = process.env.PATH;
-  process.env.PATH = join(temp, 'absent');
-  try { await assert.rejects(call('threads_record', payload), /capture_failed/); }
-  finally { process.env.PATH = previous; }
-  await fakePython("process.stderr.write('fixture-secret'); process.exit(1);", async () => {
+  const invalid = context(); invalid.cwd = join(temp, 'absent');
+  await assert.rejects(call('threads_record', payload, invalid), /capture_failed/);
+  await fakeNode("process.stderr.write('fixture-secret'); process.exit(1);", async () => {
     await assert.rejects(call('threads_record', payload), error =>
       /capture_failed/.test(error.message) && !error.message.includes('fixture-secret'));
   });
-  await fakePython("process.stdout.write('{bad fixture-secret');", async () => {
+  await fakeNode("process.stdout.write('{bad fixture-secret');", async () => {
     await assert.rejects(call('threads_record', payload), /capture_failed/);
   });
-  await fakePython("process.stdout.write(JSON.stringify({contract_version:99,ok:true,result:{}}));", async () => {
+  await fakeNode("process.stdout.write(JSON.stringify({contract_version:99,ok:true,result:{}}));", async () => {
     await assert.rejects(call('threads_record', payload), /capture_failed/);
   });
   const saved = await call('threads_record', payload);
@@ -178,10 +175,10 @@ test('async spawn and child failures reject, redact diagnostics, and allow ident
 
 test('lost receipt after a real commit is safely recovered by the identical retry', async () => {
   const payload = draft('lost-real-receipt', { title: 'Lost receipt fixture', thread_id: null });
-  await fakePython(`
+  await fakeNode(`
     const { spawnSync } = require('node:child_process');
     const input = require('node:fs').readFileSync(0);
-    const committed = spawnSync(${JSON.stringify(python)}, process.argv.slice(2), {
+    const committed = spawnSync(${JSON.stringify(node)}, process.argv.slice(2), {
       input, encoding: 'utf8', env: process.env,
     });
     if (committed.status !== 0) process.exit(1);
@@ -195,7 +192,7 @@ test('lost receipt after a real commit is safely recovered by the identical retr
 });
 
 test('CLI busy envelope is a failed tool result, never a success-shaped receipt', async () => {
-  await fakePython(`process.stdout.write(JSON.stringify({
+  await fakeNode(`process.stdout.write(JSON.stringify({
     contract_version: 1, ok: false,
     error: { code: 'busy', message: 'fixture-secret', retryable: true },
   })); process.exitCode = 5;`, async () => {
@@ -207,7 +204,7 @@ test('CLI busy envelope is a failed tool result, never a success-shaped receipt'
 test('cancellation rejects before spawn and while an asynchronous child runs', async () => {
   const already = new AbortController(); already.abort();
   await assert.rejects(call('threads_record', draft('cancel-before'), context(), already.signal), /capture_failed/);
-  await fakePython('setTimeout(() => {}, 10000);', async () => {
+  await fakeNode('setTimeout(() => {}, 10000);', async () => {
     const controller = new AbortController();
     const pending = call('threads_record', draft('cancel-during'), context(), controller.signal);
     setTimeout(() => controller.abort(), 40);
@@ -336,7 +333,7 @@ for (const shape of ['Unicode', 'DEL-escaped']) {
     await assert.rejects(call('threads_show', { ...args, limit: 21 }), /Validation failed/);
     // A valid success envelope above the existing capture ceiling must still
     // fail, without mutating the prior page or making its cursor unusable.
-    await fakePython(`process.stdout.write(JSON.stringify({
+    await fakeNode(`process.stdout.write(JSON.stringify({
       contract_version: 1, ok: true, result: { padding: 'x'.repeat(16 * 1024 * 1024) },
     }));`, async () => {
       await assert.rejects(call('threads_show', args), /capture_failed/);
@@ -370,4 +367,36 @@ test('read boundaries and large replies are explicit, not silently unbounded mod
   assert.ok(response.content[0].text.length < 50000);
   assert.match(response.content[0].text, /truncated|omitted/i);
   assert.match(response.content[0].text, /bin\/threads/);
+});
+
+test('reload refreshes the transitive MJS bridge in the same Pi process', async () => {
+  const directory = await mkdtemp(join(temp, 'reload-'));
+  const index = join(directory, 'index.ts'), bridge = join(directory, 'cli.mjs'), entry = join(directory, 'entry.ts');
+  const currentIndex = readFileSync(join(root, 'integrations/pi/index.ts'), 'utf8');
+  // Start with the pre-fix static import, as in a session opened before upgrade.
+  const previousIndex = currentIndex.replace('import { loadBridge } from "./bridge-loader.mjs";', 'import { runThreads } from "./cli.mjs";')
+    .replace('  const { runThreads } = await loadBridge();\n', '');
+  assert.notEqual(previousIndex, currentIndex);
+  await writeFile(index, previousIndex);
+  await writeFile(join(directory, 'bridge-loader.mjs'), readFileSync(join(root, 'integrations/pi/bridge-loader.mjs')));
+  await writeFile(entry, `export {default} from ${JSON.stringify(pathToFileURL(index).href)};\n`);
+  const setBridge = phase => writeFile(bridge, `export async function runThreads() {
+    return {content:[{type:'text',text:'synthetic reload fixture'}],details:{phase:${JSON.stringify(phase)}}};
+  }`);
+  async function loadAndRead() {
+    clearExtensionCache();
+    const loaded = await loadExtensions([entry], directory);
+    assert.deepEqual(loaded.errors, []);
+    assert.equal(loaded.extensions[0].tools.size, 5);
+    const result = await loaded.extensions[0].tools.get('threads_current').definition
+      .execute('reload-fixture', {}, undefined, undefined, {});
+    return result.details.phase;
+  }
+  await setBridge('before');
+  assert.equal(await loadAndRead(), 'before');
+  await writeFile(index, currentIndex);
+  await setBridge('after');
+  assert.equal(await loadAndRead(), 'after', 'reload must not keep the previously imported native ESM bridge');
+  await setBridge('latest');
+  assert.equal(await loadAndRead(), 'latest', 'subsequent bridge-only updates must also reload');
 });

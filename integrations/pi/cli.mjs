@@ -41,7 +41,7 @@ export async function runThreads(args, payload, ctx, signal) {
   }
   if (signal?.aborted) throw captureFailure();
   const { output, status } = await new Promise((resolve, reject) => {
-    const child = spawn('python3', [cli, '--pi-session-id', id, '--pi-session-ref', ref, ...args], {
+    const child = spawn(process.execPath, [cli, '--pi-session-id', id, '--pi-session-ref', ref, ...args], {
       cwd: ctx.cwd, stdio: ['pipe', 'pipe', 'pipe'], signal, timeout: 15000, killSignal: 'SIGKILL',
     });
     const chunks = [];
