@@ -1,0 +1,10 @@
+[project]
+name = "threads-local"
+version = "0.1.0"
+description = "Private local, attributed work history"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.threads]
+# Runtime and tests require only Python's standard library; no install is needed.
+source-directory = "src"
