@@ -5,7 +5,7 @@ import { dirname, delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { fixture, A, B } from './fixtures/install-fixture.mjs';
 
-test('installed Pi discovery entry loads all five tools and writes pinned storage with no Python on PATH',t=>{
+test('installed Pi discovery entry loads all six tools and writes pinned storage with no Python on PATH',t=>{
   const f=fixture(t);f.install();
   const executable=(process.env.PATH??'').split(delimiter).map(path=>join(path,'pi')).find(path=>fs.existsSync(path));assert.ok(executable,'Installed Pi loader required; no dependency download or model call');
   let piRoot=dirname(fs.realpathSync(executable));
@@ -18,11 +18,16 @@ import {pathToFileURL} from 'node:url';
 const [loader,extension,cwd,id]=process.argv.slice(1);
 const {loadExtensions}=await import(pathToFileURL(loader));
 const loaded=await loadExtensions([extension],cwd);assert.deepEqual(loaded.errors,[]);
-const tools=loaded.extensions[0].tools;assert.equal(tools.size,5);
+const tools=loaded.extensions[0].tools;assert.equal(tools.size,6);
 const ctx={cwd,sessionManager:{getSessionId:()=>id,getSessionFile:()=>cwd+'/fixture-session.jsonl'}};
 const listing=await tools.get('threads_list').definition.execute('fixture',{},undefined,undefined,ctx);assert.deepEqual(listing.details.threads,[]);
 const result=await tools.get('threads_record').definition.execute('fixture',{kind:'hypothesis',body:'Installed fixture, not live provenance.',operation_key:'installed-pi'},undefined,undefined,ctx);
-assert.equal(result.details.event.origin.session_id,id);console.log(JSON.stringify({ok:true}));`;
+assert.equal(result.details.event.origin.session_id,id);
+const found=await tools.get('threads_search').definition.execute('fixture',{query:'installed fixture'},undefined,undefined,ctx);
+assert.equal(found.details.threads[0].id,result.details.event.thread_id);
+const summary=await tools.get('threads_show').definition.execute('fixture',{thread_id:result.details.event.thread_id},undefined,undefined,ctx);
+assert.equal(summary.details.events,undefined);assert.equal(summary.details.detail_available,true);
+console.log(JSON.stringify({ok:true}));`;
   const poison=join(f.home,'must-not-use-ambient-xdg');
   assert.equal(f.run(process.execPath,['--input-type=module','-e',script,join(piRoot,'dist/core/extensions/loader.js'),join(f.home,'.pi/agent/extensions/threads.ts'),f.home,A],{extraEnv:{XDG_DATA_HOME:poison}}).ok,true);
   assert.equal(fs.existsSync(poison),false);assert.equal(f.cli(['list']).threads.length,1);

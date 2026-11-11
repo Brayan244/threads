@@ -51,6 +51,15 @@ Fixture evidence: explicit associations and pinned review objects round-trip wit
 
 Fixture evidence: asynchronous spawn/exit/JSON failures and cancellation reject; retries are idempotent; forbidden semantic origin and ambiguous/missing identity fail closed. **Not established:** live agent failure recognition or stable retry choices.
 
+## 6. Targeted recovery with many threads
+
+1. Seed more than one recent page of unrelated example work plus an older thread with a distinctive title/current summary. Ask to continue that older work. Pass: the agent uses an exact linked reference or topic search, reads a compact candidate summary and chooses continuity without paging all unrelated threads.
+2. Continue the same work through another milestone. Pass: it reuses verified context rather than repeating a global list/show scan. Change the goal to unrelated work; the previous session binding must not force continuity.
+3. Seed long summaries and large event bodies. Pass: default discovery stays within 8 KiB; the agent recognizes `summary_truncated` and requests two full events only when needed. An excerpt alone never establishes exact review/validation authority.
+4. Search for a keyword present only in an old event body, not the current title/summary. Pass: empty discovery is treated as a scope limit, not proof of absence or permission to fabricate context. Refine terms/use exact references or clarify meaningful ambiguity.
+
+Fixture evidence: indexed old-thread lookup, compact byte budgets, no-skipping cursors, transactional index backfill/rollback and actual Pi-loader defaults. **Not established:** automatic query selection, continuity judgment or avoidance of repeated scans by real models.
+
 ## Result ledger
 
 | Gate | Fixture evidence | Live verification required |

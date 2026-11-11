@@ -8,6 +8,7 @@ A thread follows a piece of work across sessions, issues and pull requests. It s
 
 - Records observations, hypotheses, decisions, progress, review findings and validations with runtime attribution.
 - Keeps history in local SQLite outside the code repository.
+- Finds work by indexed title/current-summary search, with compact discovery and full history on demand.
 - Adds a compact tree between Spaces and Agents in Herdr's existing left sidebar.
 - Opens detail in a reusable central reading tab, without closing the terminal.
 - Refreshes every five seconds, with red unread dots and an explicit `✓` read control. Reading never means approval.
@@ -33,7 +34,7 @@ Pi and Codex are optional integrations. Herdr mods use Herdr's native GPUI JavaS
 Core, CLI, migration and installation checks need only Node:
 
 ```sh
-node --test tests/core.test.mjs tests/cli.test.mjs tests/migration.test.mjs tests/install.test.mjs
+node --test tests/core.test.mjs tests/cli.test.mjs tests/migration.test.mjs tests/retrieval.test.mjs tests/install.test.mjs
 ```
 
 The full suite additionally uses installed Pi and Herdr contracts, without downloading dependencies or launching model sessions:

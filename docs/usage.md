@@ -40,7 +40,7 @@ History is pinned to `HOME/.local/share/threads/` for **all three consumers**, r
 ## Start and continue meaningful work
 
 1. Put `"$THREADS_HOME/.local/bin"` first on the **approved session's** PATH; do not edit a shell profile. Start Pi/Codex using the same approved HOME. Pi discovers the entry under `.pi/agent/extensions`; both hosts have the shared `.agents/skills/threads` skill. Confirm actual discovery using the host diagnostics; file placement alone is not behavioral evidence.
-2. Work normally. A greeting, brief answer or mechanical tool call is not a milestone. For a substantive finding, the skill first consults current association, bounded summaries and plausible candidate context. It creates a new thread only together with its first meaningful record, with no per-milestone confirmation prompt.
+2. Work normally. A greeting, brief answer or mechanical tool call is not a milestone. For a substantive finding, the skill uses verified current work or checks its current association, then exact references/topic search when needed. It inspects compact candidate summaries and requests history only for missing context. It creates a new thread only together with its first meaningful record, with no per-milestone confirmation prompt.
 3. To resume, ask “revisa los threads y continúa con esto” with the work's goal/evidence. The agent chooses continuity deliberately and associates its own current session. A shared directory or title alone is not enough. Ambiguous intent needs one clarification; there is no repo-global active thread.
 4. To retain a temporary thread explicitly, ask the agent to retain that work. Its next substantive `record` can include `"retained": true` and the selected `thread_id`. Retention never enables automatic deletion; removal of the integration never deletes temporary or retained history.
 
@@ -51,12 +51,20 @@ Pi writes only through its runtime tools, which take fresh SessionManager identi
 ## Inspect history without an agent
 
 ```sh
-"$THREADS_HOME/.local/bin/threads" list --limit 20
-"$THREADS_HOME/.local/bin/threads" show THREAD_ID --limit 10
+"$THREADS_HOME/.local/bin/threads" search "distinctive topic"
+"$THREADS_HOME/.local/bin/threads" list --compact --limit 5
+"$THREADS_HOME/.local/bin/threads" show THREAD_ID --compact
+"$THREADS_HOME/.local/bin/threads" show THREAD_ID --limit 2
 "$THREADS_HOME/.local/bin/threads" events THREAD_ID --include-references --limit 20
 ```
 
-Pi's `threads_list` and `threads_show` tools accept **1–20 items per page**, including when `include_references` is true. Omitting the limit reads 20 summaries or 10 events. Follow `next_before_sequence` to continue; larger tool limits fail schema validation. This Pi-only budget keeps accepted Unicode/escape-heavy CLI records, metadata and inherited reference snapshots below the bridge's unchanged 16 MiB subprocess ceiling. The standalone CLI still permits list pages of 100 and show/events pages of 200. Large Pi results remain available in structured tool details even when their model-facing text is omitted. Isolated loader/CLI fixtures verify this budget, not real-host compatibility.
+**Discovery is compact; full history is a separate read.** `threads search` and Pi's `threads_search` return at most five candidates by default, ranked by title/current-summary relevance (title matches carry more weight). Search uses a local SQLite FTS5 index, ignores case/accents and requires all supplied literal prefix terms. It accepts up to 320 characters / 16 terms, not raw FTS operators. It does not search event bodies or old summary versions; no match is not proof that no related work exists. When `has_more` is true, refine the query or explicitly increase the limit, up to 20.
+
+Search, `list --compact` and `show --compact` replies fit **8192 UTF-8 bytes**, including the JSON envelope/newline. Candidate summaries are capped at 240 characters; compact show returns up to 600 and no events, with `detail_available: true`. `summary_truncated` marks excerpts; stored text remains untouched. A compact list may return fewer rows to fit its byte budget; its cursor starts after the last **displayed** row, so pagination does not skip withheld results. Compact mode excludes full references/origins; use the full read for those.
+
+Pi's `threads_list` defaults to five compact summaries. Plain `threads_show` returns the compact current summary; `detail: true` requests two full recent events by default. Existing explicit `limit`, `before_sequence` or `include_references` options imply full history when `detail` is omitted; `detail: false` rejects those options. `include_references: true` on Pi list requests full metadata instead of the compact projection. Explicit full reads accept **1–20 items** per page; larger limits fail schema validation. Full replies are not limited to 8 KiB: the existing 16 MiB subprocess ceiling and model-facing omission guard remain in effect, with structured results retained.
+
+The standalone CLI's unflagged list/show behavior is unchanged: defaults of 50 summaries / 10 events and maxima of 100 / 200. Herdr continues using those full reads; its rendering, ordering and reading protection are unchanged. Installed-loader/CLI fixtures verify the projections and budgets, not autonomous agent judgment or live-host compatibility.
 
 Use the returned `next_before_sequence` for older list/show pages; events use `next_after_sequence`. `--include-origin` on events/show is an explicit private attribution audit. References are hidden by default; evidence remains with its event. `sessions THREAD_ID` exposes attributed session locators, not a promise that a host can reopen a transcript. The CLI has no unbounded export command; the Node library's explicit `Store.exportJson()` is available for an authorized full export.
 
@@ -92,7 +100,7 @@ Installer errors return exit 1/`ok: false`. Inspect the journal before retrying.
 
 ## Replace a Python installation
 
-The database remains at the same pinned location and uses the same schema v2, event IDs, canonical requests and operation-key namespaces. Node opens it in place. A v1 database is upgraded transactionally to v2 without inventing current session associations; this migration does not introduce a new schema version.
+The database remains at the same pinned location and uses the same canonical schema v2, event IDs, requests and operation-key namespaces. Node opens it in place. A v1 database is upgraded transactionally to v2 without inventing current session associations. On first open this version also backfills a derived FTS5 title/summary index; SQLite triggers keep it synchronized transactionally, including writes from older Node runtimes. The index does not change canonical exports, rewrite events or change `user_version`. Index creation and backfill roll back together on failure; subsequent opens reuse it. The first open of a large existing history may take longer; live migration timing has not been measured.
 
 1. Stop active writers and switch Herdr away from the Threads layout using its normal selector.
 2. Run the Node removal command below with the original explicit roots/layout. It recognizes legacy Python ownership fingerprints without executing Python. Inspect preserved edits, unconfirmed clones or pending journal files before continuing; never erase the journal to force replacement.

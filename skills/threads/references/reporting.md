@@ -7,13 +7,26 @@ Pi uses the extension's tools; Codex runs the configured `threads` launcher from
 | Intent | Pi | CLI |
 | --- | --- | --- |
 | Session's current binding | `threads_current {}` | `threads current` |
-| Candidate summaries | `threads_list {limit: 20}` | `threads list --limit 20` |
-| Exact linked reference | `threads_list {reference_kind: "issue", reference: "ISSUE-123"}` | `threads list --reference-kind issue --reference ISSUE-123` |
-| Candidate context | `threads_show {thread_id: ID, limit: 10}` | `threads show ID --limit 10` |
+| Topic candidates | `threads_search {query: "distinctive topic"}` | `threads search "distinctive topic"` |
+| Exact linked reference | `threads_list {reference_kind: "issue", reference: "ISSUE-123", limit: 5}` | `threads list --compact --limit 5 --reference-kind issue --reference ISSUE-123` |
+| Recent candidates (fallback) | `threads_list {limit: 5}` | `threads list --compact --limit 5` |
+| Candidate summary | `threads_show {thread_id: ID}` | `threads show ID --compact` |
+| Missing historical detail | `threads_show {thread_id: ID, detail: true, limit: 2}` | `threads show ID --limit 2` |
 | Choose continuity | `threads_associate {thread_id: ID, operation_key: KEY}` | `threads associate` + JSON stdin |
 | Create with first milestone / append | `threads_record` with the semantic object below | `threads record` + JSON stdin |
 
-These are examples of tool arguments, not literal JSON where `ID`/`KEY` appear. CLI read commands take no stdin. For list/show, `before_sequence` in Pi maps to `--before-sequence`; use `next_before_sequence` from the prior page. List filters also support `current_session` and `include_references`; show supports `include_references`. Origins stay internal by default. For an authorized attribution audit, CLI `show`/`events --include-origin` and `sessions ID` expose metadata explicitly. There is no full-text search or merge operation: inspect bounded summaries and exact linked references.
+These are examples of tool arguments, not literal JSON where `ID`/`KEY` appear. CLI read commands take no stdin. Discovery replies are compact; `summary_truncated` marks an excerpt, not missing stored data. Plain Pi show returns no events. `detail: true` reads full recent events; explicit pagination or reference options also request detail for existing callers. `include_references: true` on Pi list explicitly requests full metadata instead of the compact projection. Full detail is not subject to the compact reply budget.
+
+For list/history pages, use the returned `next_before_sequence`; in Pi it maps to `before_sequence`. Origins stay internal by default. For an authorized attribution audit, CLI `show`/`events --include-origin` and `sessions ID` expose metadata explicitly. There is no merge operation.
+
+## Find the work without scanning history
+
+1. Start from the known work ID or current session association. Inspect its compact summary if it is not already verified in this context. An existing binding is a candidate, not proof that unrelated new work belongs there.
+2. If no candidate fits, filter an exact issue/PR/session reference when known; otherwise search a few distinctive topic terms. Search covers titles and **current summaries**, not event bodies or all historical wording. Terms are literal prefixes, all required, with case/accents ignored. Refine the query when `has_more` is true; recent lists are a five-item fallback, not a mandatory pre-write scan.
+3. Read the plausible candidate's compact summary. Request two full events only for missing facts, truncation that matters, conflicting context or exact evidence/review targets. Page older events only to resolve that concrete gap. An excerpt is not complete review or validation evidence.
+4. Choose continuity once the goal and relevant context match. Reuse that verified choice during unchanged work. Empty search is not proof of absence: try another distinctive term or exact reference; clarify genuinely ambiguous continuity rather than creating a duplicate or scanning every unrelated thread.
+
+This lookup is complete when the matching work and needed context are established, or targeted checks establish that the new goal is distinct. Keep recommendations separate from user decisions.
 
 Pi supplies `--pi-session-id` and `--pi-session-ref` from the execution context, not model arguments. Codex supplies neither: invoke the CLI directly in the current shell, with its existing runtime environment. Do not set or synthesize `CODEX_THREAD_ID`, or run writes through a long-lived server that captured startup environment. A missing identity is a blocked capture, not permission to weaken sandbox or approval controls.
 

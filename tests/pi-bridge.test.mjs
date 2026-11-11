@@ -79,7 +79,7 @@ async function fakeNode(source, action) {
 test('registers only explicit domain tools; loading does not create data or hooks', () => {
   assert.deepEqual(loadErrors, []);
   assert.deepEqual([...extension.tools.keys()].sort(),
-    ['threads_associate', 'threads_current', 'threads_list', 'threads_record', 'threads_show']);
+    ['threads_associate', 'threads_current', 'threads_list', 'threads_record', 'threads_search', 'threads_show']);
   assert.equal(extension.handlers.size, 0);
   assert.equal(existsSync(join(temp, 'xdg')), false);
 });
@@ -126,7 +126,7 @@ test('origin and runtime overrides are absent from schemas and rejected rather t
   for (const [name, args] of [
     ['threads_record', draft('forbidden')],
     ['threads_associate', { thread_id: A, operation_key: 'forbidden' }],
-    ['threads_list', {}], ['threads_current', {}], ['threads_show', { thread_id: A }],
+    ['threads_list', {}], ['threads_current', {}], ['threads_show', { thread_id: A }], ['threads_search', { query: 'fixture' }],
   ]) {
     const definition = tool(name);
     for (const field of ['origin', 'pi_session_id', 'pi_session_ref', 'data_dir']) {
@@ -238,12 +238,12 @@ test('real CLI cross-host fixture preserves both origins, typed evidence and bou
   assert.equal(codex.origin.session_ref, pathToFileURL(join(temp, 'codex')).href + '#thread=' + B);
 });
 
-for (const name of ['threads_list', 'threads_show']) {
+for (const name of ['threads_list', 'threads_show', 'threads_search']) {
   test(`installed Pi schema for ${name} advertises and enforces a 20-item read ceiling`, () => {
     const definition = tool(name);
     assert.equal(definition.parameters.properties.limit.minimum, 1);
     assert.equal(definition.parameters.properties.limit.maximum, 20);
-    const args = name === 'threads_show' ? { thread_id: A } : {};
+    const args = name === 'threads_show' ? { thread_id: A } : name === 'threads_search' ? { query: 'fixture' } : {};
     for (const limit of [1, 20]) {
       assert.equal(validateToolArguments(definition, { name, arguments: { ...args, limit } }).limit, limit);
     }
@@ -297,10 +297,11 @@ for (const shape of ['Unicode', 'DEL-escaped']) {
     const listing = (await call('threads_list', filter)).details;
     const { limit: _limit, ...defaultFilter } = filter;
     const defaultListing = (await call('threads_list', defaultFilter)).details;
-    assert.equal(defaultListing.threads.length, 20,
-      'omitting limit must not fall back to the standalone CLI default of 50');
-    assert.equal(defaultListing.next_before_sequence, listing.next_before_sequence);
-    assert.deepEqual(defaultListing.threads.map(thread => thread.id), listing.threads.map(thread => thread.id));
+    assert.equal(defaultListing.threads.length, 5,
+      'discovery defaults to five, independently of the standalone CLI default of 50');
+    const five = (await call('threads_list', { ...filter, limit: 5 })).details;
+    assert.equal(defaultListing.next_before_sequence, five.next_before_sequence);
+    assert.deepEqual(defaultListing.threads.map(thread => thread.id), five.threads.map(thread => thread.id));
     assert.equal(listing.threads.length, 20);
     assert.ok(Number.isSafeInteger(listing.next_before_sequence));
     for (const thread of listing.threads) {
@@ -354,6 +355,32 @@ for (const shape of ['Unicode', 'DEL-escaped']) {
   });
 }
 
+test('Pi discovery is compact by default and full history is an explicit second read', async () => {
+  const first = (await call('threads_record', draft('compact-sdk-first', {
+    title: 'Portable needle fixture', summary: 'Compact discovery '+ '🚌'.repeat(1000),
+    body: 'Original body for explicit detail.', references: [{kind:'issue',reference:'COMPACT-SDK'}],
+  }))).details.event;
+  for(let i=0;i<3;i++)await call('threads_record',draft(`compact-sdk-more-${i}`, {
+    thread_id:first.thread_id,title:'Portable needle fixture',summary:'Compact discovery '+ '🚌'.repeat(1000),
+  }));
+  const found = await call('threads_search',{query:'portable needle'});
+  assert.equal(found.details.threads[0].id,first.thread_id);
+  assert.equal(found.details.threads[0].summary_truncated,true);
+  assert.ok(Buffer.byteLength(found.content[0].text)<=8192);
+  const listing = (await call('threads_list',{reference_kind:'issue',reference:'COMPACT-SDK'})).details;
+  assert.equal(listing.threads[0].summary_truncated,true);
+  assert.equal(listing.threads[0].references,undefined);
+  const summary = await call('threads_show',{thread_id:first.thread_id});
+  assert.equal(summary.details.thread.event_count,4);assert.equal(summary.details.events,undefined);
+  assert.equal(summary.details.detail_available,true);assert.equal(Array.from(summary.details.thread.summary).length,600);
+  assert.ok(Buffer.byteLength(summary.content[0].text)<=8192);
+  const detail = (await call('threads_show',{thread_id:first.thread_id,detail:true})).details;
+  assert.equal(detail.events.length,2);assert.ok(detail.next_before_sequence);
+  const legacyExplicit = (await call('threads_show',{thread_id:first.thread_id,limit:1})).details;
+  assert.equal(legacyExplicit.events.length,1);
+  await assert.rejects(call('threads_show',{thread_id:first.thread_id,detail:false,limit:1}),/invalid_input/);
+});
+
 test('read boundaries and large replies are explicit, not silently unbounded model context', async () => {
   assert.throws(() => validateToolArguments(tool('threads_list'), {
     name: 'threads_list', arguments: { limit: 101 },
@@ -387,7 +414,7 @@ test('reload refreshes the transitive MJS bridge in the same Pi process', async 
     clearExtensionCache();
     const loaded = await loadExtensions([entry], directory);
     assert.deepEqual(loaded.errors, []);
-    assert.equal(loaded.extensions[0].tools.size, 5);
+    assert.equal(loaded.extensions[0].tools.size, 6);
     const result = await loaded.extensions[0].tools.get('threads_current').definition
       .execute('reload-fixture', {}, undefined, undefined, {});
     return result.details.phase;

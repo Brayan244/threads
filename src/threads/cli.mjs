@@ -1,9 +1,9 @@
 // Bounded JSON/argv contract v1. No shell, network, implicit thread or transcript import.
-import { RecordDraft, ExternalReference, ValidationError, ConflictError, NotFoundError, StorageError, StoreBusyError } from './domain.mjs';
+import { RecordDraft, ExternalReference, ValidationError, ConflictError, NotFoundError, StorageError, StoreBusyError, sliceText } from './domain.mjs';
 import { resolveOrigin, IdentityError } from './identity.mjs';
 import { parseJSON, stringify } from './json.mjs';
 import { MIN_NODE, supportedNode } from './runtime.mjs';
-export const CONTRACT_VERSION=1, MAX_INPUT_BYTES=65536;
+export const CONTRACT_VERSION=1, MAX_INPUT_BYTES=65536, MAX_COMPACT_BYTES=8192;
 class InputError extends Error {}
 class ArgumentsError extends Error {}
 const HELP=`Invocation: threads [--data-dir ABS] [--busy-timeout-ms 1..60000]
@@ -13,9 +13,16 @@ shell's CODEX_THREAD_ID and CODEX_HOME. Semantic JSON must never contain origin.
 record: stdin RecordDraft without origin. Null/omitted thread_id creates with content.
 associate: stdin {thread_id,operation_key}; current: this runtime's binding or null.
 Old retries return the original receipt, not proof of the current binding.
-list [--limit 1..100] [--before-sequence N] [--current-session]
+search QUERY [--limit 1..20]: title/current-summary prefix terms, all required;
+  case/accent insensitive, relevance-ranked, default 5. No event-body search.
+  Up to 320 characters / 16 literal terms; no query operators. has_more means refine
+  the query or explicitly increase limit, not that absence proves no related work.
+list [--limit 1..100] [--before-sequence N] [--current-session] [--compact]
   [--reference-kind issue|pr|session --reference TEXT] [--include-references]
 show THREAD_ID [--limit 1..200] [--before-sequence N] [--include-origin] [--include-references]
+  [--compact]: summary only, no events. Search/compact list/show fit 8192 UTF-8
+  bytes including the envelope. summary_truncated marks excerpts; full data stays
+  stored. Compact mode excludes origins/references; compact show has no pagination.
 events THREAD_ID [--limit 1..200] [--after-sequence N] [--include-origin] [--include-references]
 sessions THREAD_ID [--limit 1..200] [--after-sequence N]
 List/show are newest first; events/sessions oldest first. Cursors are independent.
@@ -36,29 +43,38 @@ function integer(value,maximum,minimum=0) {
 }
 function parseArguments(argv) {
   const args={help:false,data_dir:undefined,busy_timeout_ms:5000,pi_session_id:undefined,pi_session_ref:undefined,
-    command:null,limit:50,before_sequence:null,after_sequence:0,current_session:false,reference_kind:null,reference:null,include_references:false,include_origin:false};
+    command:null,limit:50,before_sequence:null,after_sequence:0,current_session:false,reference_kind:null,reference:null,include_references:false,include_origin:false,compact:false};
   const globals=new Set(['--data-dir','--busy-timeout-ms','--pi-session-id','--pi-session-ref']);
-  const commands=new Set(['record','associate','current','list','show','events','sessions']);
+  const commands=new Set(['record','associate','current','list','show','events','sessions','search']);
+  const commandOptions={
+    search:new Set(['--limit']),
+    list:new Set(['--limit','--before-sequence','--current-session','--reference-kind','--reference','--include-references','--compact']),
+    show:new Set(['--limit','--before-sequence','--include-origin','--include-references','--compact']),
+    events:new Set(['--limit','--after-sequence','--include-origin','--include-references']),
+    sessions:new Set(['--limit','--after-sequence']),
+  };
   for(let i=0;i<argv.length;i++) {
     const token=argv[i],equal=token.indexOf('='),flag=equal<0?token:token.slice(0,equal);
     if(!args.command&&token==='--help'){args.help=true;continue;}
-    if(!args.command&&commands.has(token)){args.command=token;args.limit=token==='show'?10:50;continue;}
-    const options=args.command===null?globals:args.command==='list'?new Set(['--limit','--before-sequence','--current-session','--reference-kind','--reference','--include-references']):
-      ['show','events','sessions'].includes(args.command)?new Set(['--limit',args.command==='show'?'--before-sequence':'--after-sequence',...(args.command==='sessions'?[]:['--include-origin','--include-references'])]):new Set();
+    if(!args.command&&commands.has(token)){args.command=token;args.limit=token==='show'?10:token==='search'?5:50;continue;}
+    const options=args.command===null?globals:commandOptions[args.command]??new Set();
     if(options.has(flag)) {
       const key=flag.slice(2).replaceAll('-','_');
-      if(['current_session','include_references','include_origin'].includes(key)){if(equal>=0)throw new ArgumentsError();args[key]=true;continue;}
+      if(['current_session','include_references','include_origin','compact'].includes(key)){if(equal>=0)throw new ArgumentsError();args[key]=true;continue;}
       const value=equal>=0?token.slice(equal+1):argv[++i];
       if(value===undefined||value.startsWith('--'))throw new ArgumentsError();
-      args[key]=key==='limit'?integer(value,args.command==='list'?100:200,1):key==='busy_timeout_ms'?integer(value,60000,1):
+      const maximum=args.command==='list'?100:args.command==='search'?20:200;
+      args[key]=key==='limit'?integer(value,maximum,1):key==='busy_timeout_ms'?integer(value,60000,1):
         ['before_sequence','after_sequence'].includes(key)?integer(value,9223372036854775807n):value;
       if(key==='reference_kind'&&!['issue','pr','session'].includes(value))throw new ArgumentsError();
       continue;
     }
+    if(args.command==='search'&&args.query===undefined&&!token.startsWith('-')){args.query=token;continue;}
     if(['show','events','sessions'].includes(args.command)&&args.thread_id===undefined&&!token.startsWith('-')){args.thread_id=token;continue;}
     throw new ArgumentsError();
   }
-  if(!args.help&&!args.command||['show','events','sessions'].includes(args.command)&&args.thread_id===undefined)throw new ArgumentsError();
+  if(!args.help&&!args.command||['show','events','sessions'].includes(args.command)&&args.thread_id===undefined||args.command==='search'&&args.query===undefined)throw new ArgumentsError();
+  if(args.compact&&(args.include_origin||args.include_references||args.command==='show'&&args.before_sequence!==null))throw new ArgumentsError();
   return args;
 }
 async function input(stream,required) {
@@ -75,6 +91,20 @@ async function input(stream,required) {
 const next=(page,limit,field)=>page.length===limit?page.at(-1)[field]:null;
 function event(value,args){const result={...value};if(!args.include_origin)delete result.origin;if(!args.include_references)delete result.references;return result;}
 function snapshot(value,args,store){const result={...value,session_count:store.sessionCount(value.id)};if(!args.include_references)delete result.references;return result;}
+function compactThread(value,maximum=240) {
+  const summary=sliceText(value.summary,maximum);
+  return {id:value.id,title:value.title,summary,summary_truncated:summary!==value.summary,
+    latest_sequence:value.latest_sequence,event_count:value.event_count};
+}
+function compactPage(rows,build) {
+  const selected=[];
+  for(const row of rows) {
+    const projected=compactThread(row),candidate=build([...selected,projected]);
+    if(Buffer.byteLength(stringify({contract_version:CONTRACT_VERSION,ok:true,result:candidate})+'\n')>MAX_COMPACT_BYTES)break;
+    selected.push(projected);
+  }
+  return build(selected);
+}
 async function execute(args,payload,environ) {
   const origin=()=>resolveOrigin(environ,args);
   let draft=null,runtime=null;
@@ -86,14 +116,21 @@ async function execute(args,payload,environ) {
   } else if(args.command==='current'||args.command==='list'&&args.current_session)runtime=origin();
   if(args.command==='list'&&Boolean(args.reference_kind)!==Boolean(args.reference))throw new ArgumentsError();
   // Import node:sqlite only after checking the runtime and validating write input.
-  const {Store}=await import('./store.mjs');
+  const {Store,searchQuery}=await import('./store.mjs');
+  if(args.command==='search')searchQuery(args.query);
   const store=new Store(args.data_dir,{busy_timeout_ms:args.busy_timeout_ms});
+  if(args.command==='search') {
+    const page=store.searchThreads(args.query,{limit:args.limit});
+    return compactPage(page.threads,rows=>({threads:rows,has_more:page.has_more||rows.length<page.threads.length}));
+  }
   if(args.command==='record')return {event:store.append(draft)};
   if(args.command==='associate')return {association:store.associate(runtime,payload.thread_id,payload.operation_key)};
   if(args.command==='current')return {association:store.currentAssociation(runtime)};
   if(args.command==='list'){
     const reference=args.reference_kind?new ExternalReference({kind:args.reference_kind,reference:args.reference}):null;
     const page=store.listThreads({limit:args.limit,before_sequence:args.before_sequence,origin:runtime,reference});
+    if(args.compact)return compactPage(page,rows=>({threads:rows,
+      next_before_sequence:rows.length<page.length||page.length===args.limit?rows.at(-1)?.latest_sequence??null:null}));
     return {threads:page.map(value=>snapshot(value,args,store)),next_before_sequence:next(page,args.limit,'latest_sequence')};
   }
   if(args.command==='sessions'){
@@ -104,7 +141,9 @@ async function execute(args,payload,environ) {
     const page=store.events(args.thread_id,{limit:args.limit,after_sequence:args.after_sequence});
     return {events:page.map(value=>event(value,args)),next_after_sequence:next(page,args.limit,'sequence')};
   }
-  const thread=store.getThread(args.thread_id),page=store.recentEvents(args.thread_id,{limit:args.limit,before_sequence:args.before_sequence});
+  const thread=store.getThread(args.thread_id);
+  if(args.compact)return {thread:compactThread(thread,600),detail_available:true};
+  const page=store.recentEvents(args.thread_id,{limit:args.limit,before_sequence:args.before_sequence});
   return {thread:snapshot(thread,args,store),events:page.map(value=>event(value,args)),next_before_sequence:next(page,args.limit,'sequence')};
 }
 function failure(error) {

@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { RecordDraft, Origin, ExternalReference, ValidationError, ConflictError, NotFoundError, StorageError, StoreBusyError, trimText, sliceText } from './domain.mjs';
+import { RecordDraft, Origin, ExternalReference, ValidationError, ConflictError, NotFoundError, StorageError, StoreBusyError, trimText, sliceText, text } from './domain.mjs';
 import { parseJSON, stringify } from './json.mjs';
 
 export const SCHEMA_VERSION = 2;
@@ -27,6 +27,25 @@ const MIGRATION_2 = [
   "CREATE TRIGGER immutable_associations_update BEFORE UPDATE ON association_operations BEGIN SELECT RAISE(ABORT, 'associations are append-only'); END",
   "CREATE TRIGGER immutable_associations_delete BEFORE DELETE ON association_operations BEGIN SELECT RAISE(ABORT, 'associations are append-only'); END",
 ];
+// Rebuildable discovery index, not canonical history: keep schema-v2 exports and
+// old writers compatible. SQLite triggers update it in the same transaction.
+const SEARCH_INDEX = [
+  "CREATE VIRTUAL TABLE thread_search_v1 USING fts5(title, summary, content='threads', content_rowid='rowid', tokenize='unicode61 remove_diacritics 2')",
+  `CREATE TRIGGER thread_search_v1_insert AFTER INSERT ON threads BEGIN
+    INSERT INTO thread_search_v1(rowid,title,summary) VALUES(new.rowid,new.title,new.summary); END`,
+  `CREATE TRIGGER thread_search_v1_update AFTER UPDATE ON threads BEGIN
+    INSERT INTO thread_search_v1(thread_search_v1,rowid,title,summary) VALUES('delete',old.rowid,old.title,old.summary);
+    INSERT INTO thread_search_v1(rowid,title,summary) VALUES(new.rowid,new.title,new.summary); END`,
+  `CREATE TRIGGER thread_search_v1_delete AFTER DELETE ON threads BEGIN
+    INSERT INTO thread_search_v1(thread_search_v1,rowid,title,summary) VALUES('delete',old.rowid,old.title,old.summary); END`,
+  "INSERT INTO thread_search_v1(thread_search_v1) VALUES('rebuild')",
+];
+export function searchQuery(value) {
+  text(value,'query',320);
+  const words=value.normalize('NFC').match(/[\p{L}\p{N}][\p{L}\p{N}\p{M}]*/gu) ?? [];
+  if(!words.length || words.length>16) throw new ValidationError('Search needs 1–16 literal terms');
+  return words.map(word=>'"'+word+'"*').join(' AND ');
+}
 const normal = value => typeof value === 'bigint' && value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER) ? Number(value) : value;
 const rowValues = row => row === undefined ? null : Object.fromEntries(Object.entries(row).map(([key, value]) => [key, normal(value)]));
 const frozen = value => { if (value && typeof value === 'object') { Object.values(value).forEach(frozen); Object.freeze(value); } return value; };
@@ -93,6 +112,9 @@ export class Store {
       if(version>SCHEMA_VERSION) throw new StorageError('Unsupported history schema');
       if(version===0) {for(const sql of MIGRATION_1)db.exec(sql);version=1;}
       if(version===1) {for(const sql of MIGRATION_2)db.exec(sql);db.exec('PRAGMA user_version=2');}
+      if(!query(db,"SELECT 1 FROM sqlite_master WHERE name='thread_search_v1'").get()) {
+        for(const sql of SEARCH_INDEX)db.exec(sql);
+      }
     },true);
   }
   connection(action,write=false) {
@@ -174,6 +196,14 @@ export class Store {
     if(origin!==null){if(!(origin instanceof Origin))throw new ValidationError('Origin filter required');clauses.push('EXISTS (SELECT 1 FROM sessions s WHERE s.thread_id=t.id AND s.agent=? AND s.session_id=?)');parameters.push(origin.agent,origin.session_id);}
     if(reference!==null){const ref=new ExternalReference(reference);clauses.push('EXISTS (SELECT 1 FROM external_references r WHERE r.thread_id=t.id AND r.kind=? AND r.reference=?)');parameters.push(ref.kind,ref.reference);}
     return this.connection(db=>query(db,'SELECT t.* FROM threads t'+(clauses.length?' WHERE '+clauses.join(' AND '):'')+' ORDER BY t.latest_sequence DESC LIMIT ?').all(...parameters,limit).map(snapshot));
+  }
+  searchThreads(value,{limit=5}={}) {
+    bound(limit,20,'limit');const match=searchQuery(value);
+    return this.connection(db=>{
+      const rows=query(db,`SELECT t.* FROM thread_search_v1 JOIN threads t ON t.rowid=thread_search_v1.rowid
+        WHERE thread_search_v1 MATCH ? ORDER BY bm25(thread_search_v1,5.0,1.0),t.latest_sequence DESC LIMIT ?`).all(match,limit+1);
+      return {threads:rows.slice(0,limit).map(snapshot),has_more:rows.length>limit};
+    });
   }
   events(threadId,{after_sequence=0,limit=50}={}) {cursor(after_sequence,'after sequence');return this.eventsPage(threadId,limit,after_sequence,false);}
   recentEvents(threadId,{before_sequence=null,limit=10}={}) {if(before_sequence!==null)cursor(before_sequence,'before sequence');return this.eventsPage(threadId,limit,before_sequence,true);}

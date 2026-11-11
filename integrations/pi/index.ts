@@ -46,8 +46,13 @@ const listing = Type.Object({
   reference: Type.Optional(text()),
   include_references: Type.Optional(Type.Boolean()),
 }, { additionalProperties: false });
+const searching = Type.Object({
+  query: text(320),
+  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: readPageLimit })),
+}, { additionalProperties: false });
 const showing = Type.Object({
   thread_id: text(36),
+  detail: Type.Optional(Type.Boolean({ description: "True reads full events (default 2). False returns only a compact summary. Explicit pagination/reference options imply detail when omitted." })),
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: readPageLimit })),
   before_sequence: Type.Optional(Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
   include_references: Type.Optional(Type.Boolean()),
@@ -65,9 +70,20 @@ function checked(parameters: { properties: object }, args: object) {
 }
 function readArgs(command: string, args: Record<string, unknown>) {
   const argv = [command];
-  if (command === "show") argv.push(String(args.thread_id));
-  // The CLI list default (50) is larger than Pi's capture-safe page budget.
-  if (command === "list" && args.limit === undefined) argv.push("--limit", String(readPageLimit));
+  if (command === "search") argv.push(String(args.query));
+  if (command === "show") {
+    argv.push(String(args.thread_id));
+    // Preserve existing explicit history requests, while plain show is summary-only.
+    const requestedHistory = args.limit !== undefined || args.before_sequence !== undefined || args.include_references === true;
+    if (args.detail === false && requestedHistory) throw new Error("Threads invalid_input: pagination and references require detail.");
+    if (args.detail === true || args.detail === undefined && requestedHistory) {
+      if (args.limit === undefined) argv.push("--limit", "2");
+    } else argv.push("--compact");
+  }
+  if (command === "list") {
+    if (args.include_references !== true) argv.push("--compact");
+    if (args.limit === undefined) argv.push("--limit", "5");
+  }
   for (const key of ["limit", "before_sequence", "reference_kind", "reference"]) {
     if (args[key] !== undefined) argv.push(`--${key.replaceAll("_", "-")}`, String(args[key]));
   }
@@ -83,7 +99,7 @@ export default async function threads(pi: ExtensionAPI) {
   const { runThreads } = await loadBridge();
   pi.registerTool(defineTool({
     name: "threads_list", label: "Threads: list",
-    description: "Read up to 20 thread summaries per page before choosing continuity. Filter by exact issue/PR/session reference or current session; page with before_sequence. No automatic merging by directory.",
+    description: "Browse compact thread summaries, default 5 and at most 20, with an 8 KiB reply budget. Prefer threads_current for known continuity or threads_search for a topic. Filter exact references when known; page with before_sequence. include_references explicitly requests full metadata. No automatic merging by directory.",
     parameters: listing,
     async execute(_id, args, signal, _update, ctx) {
       checked(listing, args);
@@ -91,8 +107,17 @@ export default async function threads(pi: ExtensionAPI) {
     },
   }));
   pi.registerTool(defineTool({
+    name: "threads_search", label: "Threads: search",
+    description: "Find work by title/current summary without paging all threads. Supply 1–16 literal prefix terms (320 characters max), all required; accents/case ignored. Returns up to 5 compact candidates by default, at most 20, within 8 KiB. has_more means refine your query. Does not search event bodies; no match is not proof that related history does not exist. Read a candidate with threads_show before choosing continuity.",
+    parameters: searching,
+    async execute(_id, args, signal, _update, ctx) {
+      checked(searching, args);
+      return runThreads(readArgs("search", args), undefined, ctx, signal);
+    },
+  }));
+  pi.registerTool(defineTool({
     name: "threads_show", label: "Threads: context",
-    description: "Read a thread's current summary and up to 20 recent events per page (newest first). Read candidate context before continuing. Use next_before_sequence to page older records. Viewing never approves anything.",
+    description: "Read one compact current summary by default (8 KiB max; no events). For missing context set detail:true to read 2 full recent events; explicit limit, before_sequence or include_references also requests detail. Full pages accept at most 20 events and use next_before_sequence. Viewing never approves anything.",
     parameters: showing,
     async execute(_id, args, signal, _update, ctx) {
       checked(showing, args);
