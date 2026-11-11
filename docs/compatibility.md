@@ -1,6 +1,6 @@
 # Compatibility and verification
 
-Threads is an experimental local MVP. A passing fixture, static check or doctor result is not a substitute for live interaction.
+Threads v0.1.0-alpha.1 is an experimental public alpha. A passing fixture, static check or doctor result is not a substitute for live interaction.
 
 ## Runtime requirements
 
@@ -11,7 +11,7 @@ Threads is an experimental local MVP. A passing fixture, static check or doctor 
 | Pi (optional) | Installed extension loader and SessionManager contracts; checked with 0.87.1 |
 | Codex (optional) | Current-shell runtime identity for CLI writes; prior host inspection used 0.166.0 |
 
-Only Herdr and Node are installation/runtime prerequisites. There are no npm dependencies, Python helpers or native addon builds. macOS/Linux owner-only POSIX storage is supported; Windows permissions and launcher behavior have not been ported. Herdr's mod runtime remains native GPUI JavaScript, not Node.
+Four additional native adapters (Claude Code, Gemini CLI, OpenCode and Cursor) have protocol/CLI fixtures, not live compatibility certification. Cursor's current rewrite fields have static source confirmation, not a live native-shell receipt; OpenCode V2 discovery is unverified. See [native integrations](native-integrations.md). The installer does not activate those hosts or change their settings. Only Herdr and Node are installation/runtime prerequisites. There are no npm dependencies, Python helpers or native addon builds. macOS/Linux owner-only POSIX storage is supported; Windows permissions and launcher behavior have not been ported. Herdr's mod runtime remains native GPUI JavaScript, not Node.
 
 These are observations, not a support matrix or a compatibility guarantee for every host configuration. No standalone lint or typecheck command is configured.
 
@@ -29,7 +29,7 @@ Threads are ordered by latest recorded activity, including updates to older thre
 
 Run the Node suites described in the README. Coverage includes:
 
-1. CLI/storage boundaries, legacy Python-created SQLite replay, schema v1 upgrade, full-width cursors, multiprocess initialization/writes and fresh runtime identity.
+1. CLI/storage boundaries, legacy Python-created SQLite replay, schema v1 upgrade, full-width cursors, multiprocess initialization/writes, opaque native IDs, actor-scoped idempotency and fresh runtime identity.
 2. Installer ownership, collisions, reinstall/removal and preservation of unrelated configuration/history.
 3. Reader navigation, stale tab registration, return behavior and inactive-tab polling suppression.
 4. Explicit read-marker validation and monotonic sharing, future arrivals, no-op polling and last-good data.

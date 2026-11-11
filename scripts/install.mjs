@@ -82,8 +82,9 @@ export function resources(config) {
   const values=new Map(),copy=(source,target)=>{safePath(source,ROOT);values.set(target,[fs.readFileSync(source),0o600]);};
   for(const name of CORE_FILES)copy(join(ROOT,'src/threads',name),join(config.runtime,'src/threads',name));
   for(const name of ['index.ts','cli.mjs','bridge-loader.mjs'])copy(join(ROOT,'integrations/pi',name),join(config.runtime,'integrations/pi',name));
+  for(const name of ['common/invoke.mjs','hooks/native.mjs','opencode/tools.mjs'])copy(join(ROOT,'integrations',name),join(config.runtime,'integrations',name));
   for(const name of ['SKILL.md','references/reporting.md'])copy(join(ROOT,'skills/threads',name),join(config.home,'.agents/skills/threads',name));
-  for(const name of MOD_FILES)copy(join(ROOT,'herdr/mods/threads',name),join(config.herdr,'mods/threads',name));
+  for(const name of MOD_FILES)copy(join(ROOT,'mods/threads',name),join(config.herdr,'mods/threads',name));
   if(parseJSON(values.get(join(config.herdr,'mods/threads/mod.json'))[0].toString()).place!=='none')throw new InstallError('Threads mod must not auto-dock into an unrelated layout.');
   const entry=Buffer.from(`#!/usr/bin/env node\nimport(${JSON.stringify(pathToFileURL(join(config.runtime,'src/threads/cli.mjs')).href)}).then(({main})=>main(['--data-dir',${JSON.stringify(config.data)},...process.argv.slice(2)])).then(status=>{process.exitCode=status;},()=>{process.stdout.write('{"contract_version":1,"ok":false,"error":{"code":"storage_error","message":"Cannot load local Threads runtime.","retryable":false}}\\n');process.exitCode=6;});\n`);
   values.set(join(config.runtime,'bin/threads'),[entry,0o700]);values.set(config.launcher,[entry,0o700]);

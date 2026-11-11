@@ -5,6 +5,15 @@ const validCursor = value => value === null || validSequence(value);
 const path = value => typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !/[\x00-\x1f\x7f]/.test(value);
 const failure = () => new Error('No se pudo completar la lectura de Threads.');
 const kinds = ['issue', 'pr', 'session'];
+const nativeId = value => typeof value === 'string' && value.length <= 256 && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value);
+function validOrigin(origin) {
+  if (!origin || typeof origin.agent !== 'string' || !origin.agent.trim() || [...origin.agent].length > 80) return false;
+  const legacy = origin.agent === 'pi' || origin.agent === 'codex';
+  return (legacy ? typeof origin.session_id === 'string' && UUID.test(origin.session_id) : nativeId(origin.session_id)) &&
+    (typeof origin.session_ref === 'string' || !legacy && origin.session_ref === null) &&
+    (origin.actor_id === undefined || nativeId(origin.actor_id));
+}
+const originKey = origin => JSON.stringify([origin.agent, origin.session_id, origin.actor_id ?? null]);
 
 export function createClient(exec, config = {}) {
   const cli = config.cli ?? 'threads', dataDir = config.dataDir;
@@ -40,7 +49,7 @@ export function createClient(exec, config = {}) {
             typeof event.body !== 'string' || typeof event.kind !== 'string' || !Array.isArray(event.evidence))) throw failure();
       }
       if (command === 'sessions' && result.associations.some(item => item.thread_id !== id || !validSequence(item.sequence) ||
-          !item.origin || typeof item.origin.agent !== 'string' || !UUID.test(item.origin.session_id) || typeof item.origin.session_ref !== 'string')) throw failure();
+          !validOrigin(item.origin))) throw failure();
       return result;
     } catch { throw failure(); }
   }
@@ -329,8 +338,8 @@ export class ThreadsModel {
     this.pending.add(key); this.errors.delete(key);
     try {
       const result = await this.client.sessions(id, more ? current.next_after_sequence : undefined);
-      const unique = new Map((more ? current.items : []).map(item => [`${item.origin.agent}:${item.origin.session_id}`, item]));
-      for (const item of result.associations) unique.set(`${item.origin.agent}:${item.origin.session_id}`, item);
+      const unique = new Map((more ? current.items : []).map(item => [originKey(item.origin), item]));
+      for (const item of result.associations) unique.set(originKey(item.origin), item);
       this.sessions.set(id, { items: [...unique.values()], next_after_sequence: result.next_after_sequence });
     } catch { this.errors.set(key, failure().message); }
     finally { this.pending.delete(key); }

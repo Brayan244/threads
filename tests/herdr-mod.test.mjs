@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { ThreadsModel } from '../herdr/mods/threads/view-model.js';
+import { ThreadsModel } from '../mods/threads/view-model.js';
 
 const nativeTypes = readFileSync(join(process.env.HERDR_APP_HOME ?? join(homedir(), '.config/herdr-app'), 'gpui-kit.d.ts'), 'utf8');
 
@@ -68,7 +68,7 @@ const hook = registerHooks({ resolve(specifier, context, next) {
   return { url: 'data:text/javascript,' + encodeURIComponent(exports.map(name => `export const ${name} = globalThis.__threadsNative.${name};`).join('\n')), shortCircuit: true };
 } });
 globalThis.localStorage = { getItem: key => saved.get(key) ?? null, setItem: (key, value) => { storageWrites++; saved.set(key, value); } };
-const { default: Threads } = await import('../herdr/mods/threads/main.js');
+const { default: Threads } = await import('../mods/threads/main.js');
 hook.deregister();
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
@@ -686,6 +686,19 @@ test('session reference controls show both explicit links and distinct origins w
   assert.ok(find(tree, `evidence-ref-${A}-session-0`));
   assert.ok(find(tree, `evidence-session-${A}-0`));
   assert.doesNotMatch(text(tree), new RegExp(A));
+});
+
+test('opaque native session IDs without locators disclose honestly without invented links', async () => {
+  const { view, cx, flush } = await setup();
+  view.model.client.sessions = async () => ({ associations: [{ sequence: 1, origin: {
+    agent: 'opencode', session_id: 'ses_native_fixture', session_ref: null, actor_id: 'native-child',
+  } }], next_after_sequence: null });
+  assert.doesNotMatch(text(view.render(cx)), /ses_native_fixture/);
+  find(view.render(cx), `references-${A}-session`).handlers.click({}, cx); await flush();
+  const tree = view.render(cx);
+  assert.match(text(tree), /ID nativo: ses_native_fixture.*Localizador no disponible/);
+  assert.match(text(tree), /Actor native-child/);
+  assert.equal(flatten(tree).some(node => node.attrs.id === `open-session-${A}-0`), false);
 });
 
 test('native More keeps held histories still and explicit Update applies queued arrivals', async () => {

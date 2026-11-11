@@ -6,9 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { ThreadsModel, createClient, referenceAction, reviewLabel } from '../herdr/mods/threads/view-model.js';
+import { ThreadsModel, createClient, referenceAction, reviewLabel } from '../mods/threads/view-model.js';
 
-import * as presentation from '../herdr/mods/threads/view-model.js';
+import * as presentation from '../mods/threads/view-model.js';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
@@ -466,6 +466,18 @@ test('one refresh at a time; stale asynchronous page replies cannot replace newe
   await model.latest('mini', A);
   resolveOld({ thread: thread(), events: [event(10)], next_before_sequence: null }); await older;
   assert.equal(model.page('mini', A).events[0].sequence, 30);
+});
+
+test('session reads accept native opaque IDs/null locators and keep distinct actors', async () => {
+  const origin={agent:'opencode',session_id:'ses_native_fixture',session_ref:null};
+  const associations=[origin,origin,{...origin,actor_id:'native-child-a'},{...origin,actor_id:'native-child-b'}]
+    .map((value,index)=>({thread_id:A,sequence:index+1,origin:value}));
+  const client=createClient(async()=>({code:0,stderr:'',stdout:JSON.stringify({contract_version:1,ok:true,result:{associations,next_after_sequence:null}})}));
+  const model=new ThreadsModel(client);await model.loadSessions(A);
+  assert.equal(model.errors.has(`sessions:${A}`),false);assert.equal(model.sessions.get(A).items.length,3);
+  assert.equal(model.sessions.get(A).items[0].origin.session_id,'ses_native_fixture');
+  associations[0]={thread_id:A,sequence:1,origin:{agent:'pi',session_id:'not-a-uuid',session_ref:null}};
+  await assert.rejects(client.sessions(A),/No se pudo/);
 });
 
 test('reference controls omit zero groups and do not count association operations as sessions', async () => {

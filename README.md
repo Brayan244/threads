@@ -1,8 +1,10 @@
 # Threads
 
-Local work history for Pi and Codex, with a native sidebar and reading view in [Herdr](https://herdr.dev).
+Local work history for coding agents, with a native sidebar and reading view in [Herdr](https://herdr.dev).
 
 A thread follows a piece of work across sessions, issues and pull requests. It stores concise milestones and evidence references—not full conversations. Starting an agent does not create a thread.
+
+**Public alpha:** [v0.1.0-alpha.1](https://github.com/Brayan244/threads/releases/tag/v0.1.0-alpha.1). Download the allowlisted package and `SHA256SUMS` from that release. Start in an isolated environment; this is not a stable release or a verified Herdr Gallery entry.
 
 ## What it does
 
@@ -18,16 +20,16 @@ A thread follows a piece of work across sessions, issues and pull requests. It s
 | Path | Purpose |
 | --- | --- |
 | `src/threads/`, `bin/threads` | Domain, SQLite storage and JSON CLI |
-| `integrations/pi/` | Pi tools with execution-time session identity |
+| `integrations/` | Pi tools, shared CLI transport and opt-in native agent adapters |
 | `skills/threads/` | Shared reporting and continuity guidance |
-| `herdr/mods/threads/` | Native tree and reading view |
+| `mods/threads/` | Native tree and reading view |
 | `scripts/` | Explicit-root installation and read-only diagnostics |
 
 ## Requirements
 
 **Herdr + Node.js 24.15.0 or newer.** No Python, npm packages, database server or native addon build is required. SQLite comes with Node. The supported filesystem model is macOS/Linux with owner-only POSIX permissions.
 
-Pi and Codex are optional integrations. Herdr mods use Herdr's native GPUI JavaScript runtime—not Node; the CLI, persistence, installer and diagnostics run in Node.
+Agent integrations are optional. Pi/Codex retain their established paths; opt-in Claude Code, Gemini CLI, OpenCode and Cursor adapters are implemented with protocol fixtures, **not live compatibility certification**. See [native integrations](docs/native-integrations.md) before configuring them. Herdr mods use Herdr's native GPUI JavaScript runtime—not Node; the CLI, persistence, installer and diagnostics run in Node.
 
 ## Development
 
@@ -59,6 +61,12 @@ node scripts/doctor.mjs \
 
 `node bin/threads --help` describes the checkout-local CLI. Installed launchers pin one history directory across integrations. Removal preserves history, evidence and edited resources. Existing Python installations require the inspected [migration procedure](docs/usage.md#replace-a-python-installation); they are not silently overwritten.
 
+## Distribution
+
+Original code is [MIT](LICENSE). [RECIPE.md](RECIPE.md) describes process/file access, installation limits and the pending Gallery preparation. Build a local allowlisted package with `node scripts/package.mjs --output /absolute/approved/build/threads`; read [distribution](docs/distribution.md) first. The builder does not publish or edit agent settings.
+
+The illustrated preview uses synthetic data, **not a native screenshot**. A reviewed native PNG and real-host validation remain Gallery-readiness gates, not claims made by this GitHub alpha.
+
 ## Status
 
-Experimental local MVP. The code and targeted checks are available; broader live-host, accessibility and visual acceptance remain incomplete. Runtime history, transcripts, screenshots and private verification receipts are not included in this repository.
+Experimental public alpha. The code and targeted checks are available; broader live-host, accessibility and visual acceptance remain incomplete. Runtime history, transcripts, screenshots and private verification receipts are not included in this repository.

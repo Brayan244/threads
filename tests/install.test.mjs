@@ -106,7 +106,7 @@ test('symlink ancestors, source symlinks and non-writable parents fail without f
   const f=fixture(t),outside=join(f.temporary,'outside'),agents=join(f.home,'.agents');fs.mkdirSync(outside);fs.symlinkSync(outside,agents);
   assert.equal(f.install('install',{status:1}).ok,false);assert.deepEqual(fs.readdirSync(outside),[]);assert.deepEqual(f.calls(),[]);fs.unlinkSync(agents);
   fs.mkdirSync(agents,{mode:0o500});assert.equal(f.install('install',{status:1}).ok,false);assert.deepEqual(f.calls(),[]);assert.equal(fs.statSync(agents).mode&0o777,0o500);fs.chmodSync(agents,0o700);
-  fs.unlinkSync(f.sourcePath);fs.symlinkSync(join(root,'herdr/mods/threads/mod.json'),f.sourcePath);assert.equal(f.install('install',{status:1}).ok,false);assert.deepEqual(f.calls(),[]);
+  fs.unlinkSync(f.sourcePath);fs.symlinkSync(join(root,'mods/threads/mod.json'),f.sourcePath);assert.equal(f.install('install',{status:1}).ok,false);assert.deepEqual(f.calls(),[]);
 });
 
 test('malformed layouts, occupied reader IDs and unsupported sidebar slots never switch the layout',t=>{

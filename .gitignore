@@ -7,3 +7,5 @@ __pycache__/
 *.sqlite3-shm
 /herdr/mods/threads/gpui-kit.d.ts
 /herdr/mods/threads/jsconfig.json
+/mods/threads/gpui-kit.d.ts
+/mods/threads/jsconfig.json

@@ -50,6 +50,9 @@ const normal = value => typeof value === 'bigint' && value <= BigInt(Number.MAX_
 const rowValues = row => row === undefined ? null : Object.fromEntries(Object.entries(row).map(([key, value]) => [key, normal(value)]));
 const frozen = value => { if (value && typeof value === 'object') { Object.values(value).forEach(frozen); Object.freeze(value); } return value; };
 const now = () => new Date().toISOString().replace('Z', '000+00:00');
+// Existing rows retain their keys. Actor-scoped rows use a reserved tuple key;
+// exported event/binding origins always keep the actual native session_id.
+const sessionScope=origin=>origin.actor_id===undefined?origin.session_id:stringify([origin.session_id,origin.actor_id]);
 function bound(value, maximum, name) {
   if (!Number.isInteger(value) || value < 1 || value > maximum) throw new ValidationError(`Invalid ${name}`);
 }
@@ -133,7 +136,7 @@ export class Store {
     if(!(draft instanceof RecordDraft)) throw new ValidationError('Append requires a RecordDraft');
     const request=stringify(draft.toDict());
     return this.connection(db=>{
-      const old=query(db,'SELECT * FROM events WHERE agent=? AND session_id=? AND operation_key=?').get(draft.origin.agent,draft.origin.session_id,draft.operation_key);
+      const old=query(db,'SELECT * FROM events WHERE agent=? AND session_id=? AND operation_key=?').get(draft.origin.agent,sessionScope(draft.origin),draft.operation_key);
       if(old) {if(old.request_json!==request)throw new ConflictError('Operation key conflict');return event(old);}
       const threadId=draft.thread_id ?? randomUUID(),receivedAt=now();
       if(draft.thread_id===null) query(db,"INSERT INTO threads VALUES (?, ?, ?, 0, '[]', 0, 0, ?)").run(threadId,
@@ -142,12 +145,12 @@ export class Store {
       if(!row)throw new NotFoundError('Unknown thread');
       const values={...draft.toDict(),thread_id:threadId,received_at:receivedAt};
       const inserted=query(db,'INSERT INTO events(thread_id,agent,session_id,operation_key,request_json,event_json) VALUES (?,?,?,?,?,?)')
-        .run(threadId,draft.origin.agent,draft.origin.session_id,draft.operation_key,request,stringify(values));
+        .run(threadId,draft.origin.agent,sessionScope(draft.origin),draft.operation_key,request,stringify(values));
       const sequence=inserted.lastInsertRowid;
       const references=draft.references===null?row.references_json:stringify(values.references);
       query(db,'UPDATE threads SET title=?,summary=?,retained=?,references_json=?,latest_sequence=?,event_count=event_count+1,received_at=? WHERE id=?')
         .run(draft.title ?? row.title,draft.summary ?? sliceText(draft.body,4000),draft.retained===null?row.retained:Number(draft.retained),references,sequence,receivedAt,threadId);
-      query(db,'INSERT OR IGNORE INTO sessions VALUES (?,?,?)').run(threadId,draft.origin.agent,draft.origin.session_id);
+      query(db,'INSERT OR IGNORE INTO sessions VALUES (?,?,?)').run(threadId,draft.origin.agent,sessionScope(draft.origin));
       for(const reference of draft.references ?? [])query(db,'INSERT OR IGNORE INTO external_references VALUES (?,?,?)').run(threadId,reference.kind,reference.reference);
       this.bind(db,draft.origin,threadId,draft.operation_key,'record',receivedAt);
       return frozen({...values,sequence});
@@ -155,15 +158,15 @@ export class Store {
   }
   bind(db,origin,threadId,operationKey,source,receivedAt) {
     const key=source+':'+operationKey,request=stringify({origin:{...origin},thread_id:threadId});
-    const old=query(db,'SELECT * FROM association_operations WHERE agent=? AND session_id=? AND operation_key=?').get(origin.agent,origin.session_id,key);
+    const old=query(db,'SELECT * FROM association_operations WHERE agent=? AND session_id=? AND operation_key=?').get(origin.agent,sessionScope(origin),key);
     if(old) {if(old.request_json!==request)throw new ConflictError('Association key conflict');return {...parseJSON(old.binding_json),sequence:old.sequence};}
     if(!query(db,'SELECT 1 FROM threads WHERE id=?').get(threadId))throw new NotFoundError('Unknown thread');
     const binding={origin:{...origin},thread_id:threadId,operation_key:operationKey,source,received_at:receivedAt};
     const inserted=query(db,'INSERT INTO association_operations(agent,session_id,operation_key,thread_id,request_json,binding_json) VALUES (?,?,?,?,?,?)')
-      .run(origin.agent,origin.session_id,key,threadId,request,stringify(binding));
+      .run(origin.agent,sessionScope(origin),key,threadId,request,stringify(binding));
     query(db,'INSERT INTO current_associations VALUES (?,?,?) ON CONFLICT(agent,session_id) DO UPDATE SET sequence=excluded.sequence')
-      .run(origin.agent,origin.session_id,inserted.lastInsertRowid);
-    query(db,'INSERT OR IGNORE INTO sessions VALUES (?,?,?)').run(threadId,origin.agent,origin.session_id);
+      .run(origin.agent,sessionScope(origin),inserted.lastInsertRowid);
+    query(db,'INSERT OR IGNORE INTO sessions VALUES (?,?,?)').run(threadId,origin.agent,sessionScope(origin));
     return {...binding,sequence:inserted.lastInsertRowid};
   }
   associate(origin,threadId,operationKey) {
@@ -174,7 +177,7 @@ export class Store {
   currentAssociation(origin) {
     if(!(origin instanceof Origin))throw new ValidationError('Origin required');
     return this.connection(db=>{
-      const row=query(db,'SELECT a.* FROM current_associations c JOIN association_operations a ON a.sequence=c.sequence WHERE c.agent=? AND c.session_id=?').get(origin.agent,origin.session_id);
+      const row=query(db,'SELECT a.* FROM current_associations c JOIN association_operations a ON a.sequence=c.sequence WHERE c.agent=? AND c.session_id=?').get(origin.agent,sessionScope(origin));
       return row?{...parseJSON(row.binding_json),sequence:row.sequence}:null;
     });
   }
@@ -193,7 +196,7 @@ export class Store {
   listThreads({limit=50,before_sequence=null,origin=null,reference=null}={}) {
     bound(limit,100,'limit');const clauses=[],parameters=[];
     if(before_sequence!==null){cursor(before_sequence,'before sequence');clauses.push('t.latest_sequence < ?');parameters.push(before_sequence);}
-    if(origin!==null){if(!(origin instanceof Origin))throw new ValidationError('Origin filter required');clauses.push('EXISTS (SELECT 1 FROM sessions s WHERE s.thread_id=t.id AND s.agent=? AND s.session_id=?)');parameters.push(origin.agent,origin.session_id);}
+    if(origin!==null){if(!(origin instanceof Origin))throw new ValidationError('Origin filter required');clauses.push('EXISTS (SELECT 1 FROM sessions s WHERE s.thread_id=t.id AND s.agent=? AND s.session_id=?)');parameters.push(origin.agent,sessionScope(origin));}
     if(reference!==null){const ref=new ExternalReference(reference);clauses.push('EXISTS (SELECT 1 FROM external_references r WHERE r.thread_id=t.id AND r.kind=? AND r.reference=?)');parameters.push(ref.kind,ref.reference);}
     return this.connection(db=>query(db,'SELECT t.* FROM threads t'+(clauses.length?' WHERE '+clauses.join(' AND '):'')+' ORDER BY t.latest_sequence DESC LIMIT ?').all(...parameters,limit).map(snapshot));
   }

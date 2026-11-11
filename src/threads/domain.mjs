@@ -57,12 +57,20 @@ export function reference(value) {
   return value;
 }
 
+function nativeId(value,name) {
+  text(value,name,256);
+  // Keep opaque native spelling; '[' is reserved for internal actor-scope keys.
+  if(!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value))throw new ValidationError(`Invalid ${name}`);
+  return value;
+}
 export class Origin {
   constructor(value) {
-    object(value, ['agent','session_id','session_ref']);
+    object(value, ['agent','session_id','session_ref','actor_id']);
     this.agent = text(value.agent, 'agent', 80);
-    this.session_id = canonicalId(value.session_id, 'session_id');
-    this.session_ref = reference(value.session_ref);
+    const legacy=this.agent==='pi'||this.agent==='codex';
+    this.session_id = legacy?canonicalId(value.session_id, 'session_id'):nativeId(value.session_id,'session_id');
+    this.session_ref = !legacy&&value.session_ref===null?null:reference(value.session_ref);
+    if(value.actor_id!==undefined)this.actor_id=nativeId(value.actor_id,'actor_id');
     Object.freeze(this);
   }
 }

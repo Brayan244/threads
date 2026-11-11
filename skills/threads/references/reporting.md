@@ -2,7 +2,7 @@
 
 ## Host operations
 
-Pi uses the extension's tools; Codex runs the configured `threads` launcher from its **current shell tool execution**. If no launcher is installed, use `node` (24.15.0+) with the known absolute path to the source checkout's `bin/threads`. Resolve the actual installation first; a copied skill directory alone is not an executable installation. Run that CLI's `--help` for the authoritative v1 schema and bounds. Commands return one JSON envelope: `contract_version: 1`, `ok`, and `result` or `error`; only exit 0 with `ok: true` confirms success.
+Pi uses the extension's tools; Codex runs the configured `threads` launcher from its **actual current shell tool execution**. Configured OpenCode uses `threads_*` custom tools with session context per callback; its record tool takes the semantic object encoded in a `payload` JSON string. Configured Claude Code, Gemini CLI and Cursor hooks use one direct `threads --require-native-context COMMAND` per shell call: insert that flag before every command in the CLI examples below. The flag prevents an absent hook from falling back to an ancestor's Codex ID. Pipelines/wrapped executables are unsupported for these hooks. These instructions do not configure a host or certify its version. If no launcher is installed, use `node` (24.15.0+) with the known absolute path to the source checkout's `bin/threads`. Resolve the actual installation first; a copied skill directory alone is not an executable installation. Run that CLI's `--help` for the authoritative v1 schema and bounds. Commands return one JSON envelope: `contract_version: 1`, `ok`, and `result` or `error`; only exit 0 with `ok: true` confirms success.
 
 | Intent | Pi | CLI |
 | --- | --- | --- |
@@ -28,7 +28,7 @@ For list/history pages, use the returned `next_before_sequence`; in Pi it maps t
 
 This lookup is complete when the matching work and needed context are established, or targeted checks establish that the new goal is distinct. Keep recommendations separate from user decisions.
 
-Pi supplies `--pi-session-id` and `--pi-session-ref` from the execution context, not model arguments. Codex supplies neither: invoke the CLI directly in the current shell, with its existing runtime environment. Do not set or synthesize `CODEX_THREAD_ID`, or run writes through a long-lived server that captured startup environment. A missing identity is a blocked capture, not permission to weaken sandbox or approval controls.
+Pi supplies `--pi-session-id` and `--pi-session-ref` from the execution context, not model arguments. Codex supplies neither: invoke the CLI directly in the current shell, with its existing runtime environment. Do not set or synthesize `CODEX_THREAD_ID`, or run writes through a long-lived server that captured startup environment. For configured native SDK/hooks, the integration supplies current context outside semantic input. Native IDs may be opaque; preserve them exactly. If the host supplies no transcript locator, the stored locator is explicitly null, not invented. Never set/reuse the runtime envelope yourself, copy it after /new or infer a child actor ID. Missing/unavailable integration is a blocked capture: report it once and continue the underlying work where safe, without claiming a save or weakening sandbox/approval controls.
 
 ## Semantic records
 

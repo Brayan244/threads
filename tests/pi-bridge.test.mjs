@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import childProcess, { execFileSync } from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -394,6 +394,20 @@ test('read boundaries and large replies are explicit, not silently unbounded mod
   assert.ok(response.content[0].text.length < 50000);
   assert.match(response.content[0].text, /truncated|omitted/i);
   assert.match(response.content[0].text, /bin\/threads/);
+});
+
+test('shared transport changes load fresh without retaining a stale transitive helper', async () => {
+  const directory = await mkdtemp(join(temp, 'shared-transport-'));
+  await mkdir(join(directory, 'pi')); await mkdir(join(directory, 'common'));
+  const bridge = join(directory, 'pi/cli.mjs'), shared = join(directory, 'common/invoke.mjs');
+  await writeFile(bridge, readFileSync(join(root, 'integrations/pi/cli.mjs')));
+  const setTransport = phase => writeFile(shared, `export async function invokeThreads(args) { return {phase:${JSON.stringify(phase)},args}; }`);
+  await setTransport('first');
+  const { runThreads } = await import(pathToFileURL(bridge));
+  assert.equal((await runThreads(['current'], undefined, context())).phase, 'first');
+  await setTransport('second');
+  const result = await runThreads(['current'], undefined, context(B));
+  assert.equal(result.phase, 'second');assert.equal(result.args[1], B);
 });
 
 test('reload refreshes the transitive MJS bridge in the same Pi process', async () => {

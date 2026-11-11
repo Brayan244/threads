@@ -7,9 +7,12 @@ export const CONTRACT_VERSION=1, MAX_INPUT_BYTES=65536, MAX_COMPACT_BYTES=8192;
 class InputError extends Error {}
 class ArgumentsError extends Error {}
 const HELP=`Invocation: threads [--data-dir ABS] [--busy-timeout-ms 1..60000]
-  [--pi-session-id UUID --pi-session-ref ABS_FILE] COMMAND [OPTIONS]
+  [--pi-session-id UUID --pi-session-ref ABS_FILE] [--require-native-context] COMMAND [OPTIONS]
 Requires Node ${MIN_NODE}+. Pi supplies fresh SessionManager argv; Codex uses this
-shell's CODEX_THREAD_ID and CODEX_HOME. Semantic JSON must never contain origin.
+shell's CODEX_THREAD_ID and CODEX_HOME. Other hosts use a fresh per-call runtime
+adapter envelope; never export it in a shell profile or reuse it after /new.
+Hook-based hosts must pass --require-native-context to forbid ancestor fallback.
+Semantic JSON must never contain origin.
 record: stdin RecordDraft without origin. Null/omitted thread_id creates with content.
 associate: stdin {thread_id,operation_key}; current: this runtime's binding or null.
 Old retries return the original receipt, not proof of the current binding.
@@ -42,9 +45,9 @@ function integer(value,maximum,minimum=0) {
   return number<=BigInt(Number.MAX_SAFE_INTEGER)?Number(number):number;
 }
 function parseArguments(argv) {
-  const args={help:false,data_dir:undefined,busy_timeout_ms:5000,pi_session_id:undefined,pi_session_ref:undefined,
+  const args={help:false,data_dir:undefined,busy_timeout_ms:5000,pi_session_id:undefined,pi_session_ref:undefined,require_native_context:false,
     command:null,limit:50,before_sequence:null,after_sequence:0,current_session:false,reference_kind:null,reference:null,include_references:false,include_origin:false,compact:false};
-  const globals=new Set(['--data-dir','--busy-timeout-ms','--pi-session-id','--pi-session-ref']);
+  const globals=new Set(['--data-dir','--busy-timeout-ms','--pi-session-id','--pi-session-ref','--require-native-context']);
   const commands=new Set(['record','associate','current','list','show','events','sessions','search']);
   const commandOptions={
     search:new Set(['--limit']),
@@ -60,7 +63,7 @@ function parseArguments(argv) {
     const options=args.command===null?globals:commandOptions[args.command]??new Set();
     if(options.has(flag)) {
       const key=flag.slice(2).replaceAll('-','_');
-      if(['current_session','include_references','include_origin','compact'].includes(key)){if(equal>=0)throw new ArgumentsError();args[key]=true;continue;}
+      if(['current_session','include_references','include_origin','compact','require_native_context'].includes(key)){if(equal>=0)throw new ArgumentsError();args[key]=true;continue;}
       const value=equal>=0?token.slice(equal+1):argv[++i];
       if(value===undefined||value.startsWith('--'))throw new ArgumentsError();
       const maximum=args.command==='list'?100:args.command==='search'?20:200;
@@ -149,7 +152,7 @@ async function execute(args,payload,environ) {
 function failure(error) {
   const types=[
     [ArgumentsError,'invalid_arguments','Invalid command arguments; run --help.',2],
-    [IdentityError,'identity_required','Fresh, unambiguous Pi context or current shell CODEX_THREAD_ID required.',2],
+    [IdentityError,'identity_required','Fresh, unambiguous runtime adapter context required.',2],
     [InputError,'invalid_input','Invalid or oversized input; check contract and field bounds.',2],
     [ValidationError,'invalid_input','Invalid or oversized input; check contract and field bounds.',2],
     [TypeError,'invalid_input','Invalid or oversized input; check contract and field bounds.',2],

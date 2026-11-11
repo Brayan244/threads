@@ -2,7 +2,7 @@
 
 ## Install only into an approved explicit root
 
-Install Node.js **24.15.0+** and Herdr first. Python, npm dependencies and a separate SQLite installation are not needed. Pi and Codex are optional; the installer places their integrations but never installs or starts those hosts. Use a macOS/Linux filesystem with POSIX ownership and permissions.
+Install Node.js **24.15.0+** and Herdr first. Python, npm dependencies and a separate SQLite installation are not needed. Agents are optional; the installer places runtime integration code but never installs or starts a host. Pi/Codex keep their established paths. Claude Code, Gemini CLI, OpenCode and Cursor require separate opt-in configuration and live validation; see [native integrations](native-integrations.md). Use a macOS/Linux filesystem with POSIX ownership and permissions.
 
 Do not use your personal HOME as a fixture. The live host procedure in [compatibility.md](compatibility.md) requires operator approval first. Tests initialize their own simulated Herdr home; the installer itself does not launch Herdr, install dependencies or create work history.
 
@@ -33,7 +33,7 @@ The native operation is exactly `herdr-app do layout.clone '{"name":"main","as":
 | Pi extension discovery entry | `HOME/.pi/agent/extensions/threads.ts` |
 | Mod and native-created layout clone | `HERDR_ROOT/mods/threads/`, `HERDR_ROOT/layouts/threads-main.json` |
 
-Ownership and file hash/mode records live at `HOME/.local/state/threads-install/manifest.json`. The five authored mod files are copied; generated `.d.ts`/`jsconfig.json` are not. The installer never copies symlink targets, edits host settings, adds hooks or changes trust/approval policies. Herdr executes only bounded read commands through the configured launcher; explicit evidence opening uses Dia for http(s) URLs and Finder reveal for local files. Missing Dia is an error, not permission to pick another application.
+Ownership and file hash/mode records live at `HOME/.local/state/threads-install/manifest.json`. The five authored files from `mods/threads/` are copied; generated `.d.ts`/`jsconfig.json` are not. Native hook/OpenCode support modules are copied into the runtime only; no new host settings/discovery entries are activated automatically. The installer never copies symlink targets, edits host settings, adds hooks or changes trust/approval policies. Herdr executes only bounded read commands through the configured launcher; explicit evidence opening uses Dia for http(s) URLs and Finder reveal for local files. Missing Dia is an error, not permission to pick another application.
 
 History is pinned to `HOME/.local/share/threads/` for **all three consumers**, regardless of ambient `XDG_DATA_HOME`. It is created owner-only by the first CLI read/write, not by installation. The installed runtime has its own Node modules and bridge; it does not depend on the checkout staying in place for everyday use. Keep this checkout for installer/removal operations. Installed launchers use `node` on the host's PATH, which must be 24.15.0+. Pi's bridge uses its own current Node executable directly, with no Python or shell subprocess.
 
@@ -46,7 +46,7 @@ History is pinned to `HOME/.local/share/threads/` for **all three consumers**, r
 
 After replacing Pi integration files, run `/reload` in Pi. The native bridge loader versions imports by bridge content so reload does not retain an older `.mjs` implementation.
 
-Pi writes only through its runtime tools, which take fresh SessionManager identity. Codex invokes `threads` from its **current shell execution**, using the real `CODEX_THREAD_ID`; never set that variable yourself or copy another session's identity. Missing or ambiguous provenance blocks capture. For an approved Codex session, allow the pinned history directory through the normal supported directory-access/approval mechanism when required. Do not disable sandboxing, approvals or hook trust. Report a blocked prerequisite once; do not claim a failed write was saved.
+Pi writes only through its runtime tools, which take fresh SessionManager identity. Optional native adapters retain their host's actual per-call IDs, including opaque IDs; their setup and evidence limits are in [native integrations](native-integrations.md). Codex invokes `threads` from its **current shell execution**, using the real `CODEX_THREAD_ID`; never set that variable yourself or copy another session's identity. Missing or ambiguous provenance blocks capture. For an approved Codex session, allow the pinned history directory through the normal supported directory-access/approval mechanism when required. Do not disable sandboxing, approvals or hook trust. Report a blocked prerequisite once; do not claim a failed write was saved.
 
 ## Inspect history without an agent
 

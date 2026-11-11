@@ -169,9 +169,13 @@ export function renderReferences(view, id, t) {
         (_e, cx) => view.task(cx, () => model.loadSessions(id)), t));
       if (!sessions) panel.child(label(error ? 'Sesiones no disponibles' : 'Cargando sesiones…', t));
       else {
-        sessions.items.forEach((item, index) => panel.child(v_flex().flex_none().gap(4)
-          .child(label(`${item.origin.agent} · Sesión ${index + 1}`, t))
-          .child(reference(view, `session-${id}-${index}`, item.origin.session_ref, t))));
+        sessions.items.forEach((item, index) => {
+          const row = v_flex().flex_none().gap(4)
+            .child(label(`${item.origin.agent} · Sesión ${index + 1}${item.origin.actor_id ? ` · Actor ${item.origin.actor_id}` : ''}`, t));
+          if (item.origin.session_ref === null) row.child(label(`ID nativo: ${item.origin.session_id} · Localizador no disponible`, t));
+          else row.child(reference(view, `session-${id}-${index}`, item.origin.session_ref, t));
+          panel.child(row);
+        });
         if (!sessions.items.length) panel.child(label('Sin sesiones en esta página', t));
         if (sessions.next_after_sequence) panel.child(control(`more-sessions-${id}`, 'Más sesiones',
           (_e, cx) => view.task(cx, () => model.loadSessions(id, true)), t));

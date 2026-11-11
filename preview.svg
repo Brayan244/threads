@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="780" viewBox="0 0 1280 780" role="img" aria-labelledby="title desc">
+<title id="title">Threads — local work history, synthetic illustration</title>
+<desc id="desc">Illustrated preview, not a native Herdr screenshot. Fictional work rows and milestones demonstrate progressive disclosure without private histories.</desc>
+<defs><style>text{font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;fill:#d8dee9} .quiet{fill:#8c96a8}.tiny{font-size:13px}.label{font-size:15px}.heading{font-size:23px;font-weight:600}</style></defs>
+<rect width="1280" height="780" rx="22" fill="#11151b"/>
+<rect x="1" y="1" width="1278" height="778" rx="21" fill="none" stroke="#303743"/>
+<circle cx="26" cy="26" r="6" fill="#ee6a65"/><circle cx="47" cy="26" r="6" fill="#e6b44d"/><circle cx="68" cy="26" r="6" fill="#64ba70"/>
+<text x="101" y="32" class="label quiet">Threads · Herdr</text>
+<line x1="306" y1="54" x2="306" y2="716" stroke="#303743"/>
+<text x="24" y="92" class="tiny quiet">SPACES</text><text x="30" y="127" class="label">▾  Demo workspace</text>
+<text x="24" y="203" class="tiny quiet">THREADS</text><text x="254" y="203" class="label quiet">↻</text>
+<rect x="13" y="222" width="280" height="39" rx="8" fill="#243044"/>
+<text x="25" y="247" class="label">▾  Demo · Native identity</text><circle cx="274" cy="242" r="3" fill="#dc7b87"/>
+<line x1="38" y1="279" x2="38" y2="376" stroke="#465267"/>
+<circle cx="38" cy="286" r="3" fill="#8da0bc"/><text x="54" y="291" class="tiny">Keep the host's actual session ID.</text>
+<text x="54" y="313" class="tiny quiet">Observation · synthetic data</text>
+<circle cx="38" cy="345" r="3" fill="#8da0bc"/><text x="54" y="350" class="tiny">Read identity on each tool call.</text>
+<text x="54" y="372" class="tiny quiet">Progress · synthetic data</text>
+<text x="25" y="422" class="label">▸  Demo · Compact queries</text><text x="25" y="465" class="label">▸  Demo · Distribution</text>
+<text x="24" y="600" class="tiny quiet">AGENTS</text><text x="30" y="635" class="label quiet">Your existing workspace stays here.</text>
+<text x="353" y="96" class="tiny quiet">‹  Return to workspace</text>
+<text x="353" y="160" class="heading">Demo · Native identity</text>
+<text x="353" y="193" class="label quiet">A work thread can span real native sessions.</text>
+<line x1="354" y1="221" x2="1203" y2="221" stroke="#303743"/>
+<text x="354" y="269" class="tiny quiet">PROGRESS · FICTIONAL MILESTONE</text>
+<text x="354" y="309" class="label">The runtime supplies the session ID for each call.</text>
+<text x="354" y="339" class="label">A new conversation changes that ID, not the existing history.</text>
+<text x="354" y="386" class="tiny quiet">▸  Record data and exact attribution</text>
+<line x1="354" y1="426" x2="1203" y2="426" stroke="#303743"/>
+<text x="354" y="475" class="tiny quiet">OBSERVATION · FICTIONAL MILESTONE</text>
+<text x="354" y="515" class="label">Start with compact search and a current summary.</text>
+<text x="354" y="545" class="label">Load full milestones only when the missing detail matters.</text>
+<rect x="353" y="590" width="306" height="36" rx="7" fill="#1c222c" stroke="#354052"/>
+<text x="369" y="613" class="tiny quiet">Local SQLite · no transcript import</text>
+<line x1="0" y1="716" x2="1280" y2="716" stroke="#303743"/>
+<text x="24" y="752" class="label quiet">Illustrated preview · synthetic data · not a native screenshot</text>
+</svg>
