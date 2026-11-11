@@ -20,10 +20,10 @@ These are observations, not a support matrix or a compatibility guarantee for ev
 - The compact tree lives between Spaces and Agents in the existing left sidebar, with its own scroll region.
 - Detail opens in one reusable native reading tab per Space and history source. Return selects the original workspace tab, or another surviving terminal tab; it does not close terminals.
 - Reading uses a column capped at 720 logical pixels, original paragraphs, quiet metadata and evidence controls. Full record data and exact review targets require disclosure.
-- One non-overlapping poll runs every five seconds. Unchanged results preserve object identity and avoid explicit redraws or repeated state writes. Historical pages and last-good data survive updates and failures.
+- One non-overlapping poll runs every five seconds. Open visible mini histories hold sidebar order and content while incoming work is signaled beside Update. Closing the last visible history or explicitly updating applies held work; historical page cursors and unread pending advances remain intact. The central reader keeps automatic updates. Unchanged polls avoid explicit redraws and repeated state writes.
 - Red dots indicate unread updates. Explicit `✓` marks a thread through its latest known snapshot, not future arrivals. Hovering, opening and polling do not mark it read. Reading is not review or approval.
 
-Latest-page updates are newest-first. Stable element IDs reduce avoidable movement, but inserting a new row above existing text can still move the reading position. There is no zero-jitter guarantee.
+Threads are ordered by latest recorded activity, including updates to older threads. The embedded sidebar retargets native position springs with stable row IDs and measured expanded heights; legacy card lists retain their rendering. Latest-page events are also newest-first. Stable element IDs reduce avoidable movement, but inserting or moving a row above existing text can still move the reading position. There is no zero-jitter guarantee. Builder fixtures cover ordering, geometry targets, paused reading, explicit application, read boundaries and refresh/navigation races. Real CLI fixtures cover held arrivals and pagination. Seeded native checks exercise motion and pending/error header descriptions, not visual smoothness or pixel-perfect scroll anchoring.
 
 ## Available verification
 

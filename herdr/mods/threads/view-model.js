@@ -107,6 +107,7 @@ export class ThreadsModel {
     this.client = client;
     this.threads = []; this.olderListCursor = null; this.listHead = null; this.listGaps = [];
     this.loading = false; this.error = null;
+    this.readingThreads = null; this.readingVersion = 0; this.listRequest = null;
     this.expanded = new Set(Array.isArray(saved.expanded) ? saved.expanded.filter(id => UUID.test(id)) : []);
     this.selected = typeof saved.selected === 'string' && UUID.test(saved.selected) ? saved.selected : null;
     this.seen = new Set(Array.isArray(saved.seen) ? saved.seen.filter(validSeenKey) : []);
@@ -129,6 +130,14 @@ export class ThreadsModel {
     return { selected: this.selected, expanded: [...this.expanded], seen: [...this.seen],
       readThrough: [...this.readThrough], pages: [...pages] };
   }
+  get visibleThreads() { return this.readingThreads ?? this.threads; }
+  get readingPaused() { return this.readingThreads !== null; }
+  get hasPendingUpdates() {
+    if (!this.readingPaused) return false;
+    const held = new Set(this.readingThreads);
+    return this.threads.some(thread => !held.has(thread)) || [...this.expanded].some(id =>
+      this.page('mini', id)?.before === null && this.hasUpdates('mini', id));
+  }
   thread(id) { return this.threads.find(thread => thread.id === id) ?? this.page('detail', id)?.thread ?? this.page('mini', id)?.thread; }
   page(surface, id) { return this.pages.get(`${surface}:${id}`); }
   pageError(surface, id) { return this.errors.get(`${surface}:${id}`); }
@@ -144,7 +153,9 @@ export class ThreadsModel {
     return latest > 0 && !this.isSeen(id, latest);
   }
   markRead(id) {
-    const latest = this.latestSequence(id);
+    const latest = this.readingPaused ? Math.max(0,
+      ...[this.readingThreads.find(thread => thread.id === id), this.page('mini', id)?.thread, this.page('detail', id)?.thread]
+        .map(thread => thread?.latest_sequence).filter(validSequence)) : this.latestSequence(id);
     if (!validThreadId(id) || latest === 0 || latest <= (this.readThrough.get(id) ?? 0)) return false;
     this.readThrough.set(id, latest);
     return true;
@@ -159,8 +170,9 @@ export class ThreadsModel {
     const previous = this.threads, previousCursor = this.listCursor, previousError = this.error;
     this.loading = true;
     try {
-      const result = await this.client.list(more ? this.listCursor : undefined);
-      // Preserve existing row order/scroll anchors. New arrivals never push a reading card down.
+      this.listRequest = this.client.list(more ? this.listCursor : undefined);
+      const result = await this.listRequest;
+      // Merge snapshots before ordering: an existing thread can have the newest activity.
       const incoming = new Map(result.threads.map(thread => [thread.id, thread]));
       const nextThreads = this.threads.map(thread => {
         const next = incoming.get(thread.id);
@@ -168,8 +180,18 @@ export class ThreadsModel {
       });
       const ids = new Set(nextThreads.map(thread => thread.id));
       nextThreads.push(...result.threads.filter(thread => !ids.has(thread.id)));
+      nextThreads.sort((a, b) => b.latest_sequence - a.latest_sequence);
       if (nextThreads.length !== previous.length || nextThreads.some((thread, index) => thread !== previous[index])) {
         this.threads = nextThreads;
+      }
+      if (!this.readingPaused && this.threads.some(thread => this.expanded.has(thread.id))) {
+        this.readingThreads = this.threads;
+      } else if (more && this.readingPaused) {
+        // Older pages may grow below the reading snapshot; queued head arrivals stay hidden.
+        const ids = new Set(this.readingThreads.map(thread => thread.id));
+        const head = Math.max(0, ...this.readingThreads.map(thread => thread.latest_sequence));
+        const older = result.threads.filter(thread => !ids.has(thread.id) && thread.latest_sequence <= head);
+        if (older.length) this.readingThreads = [...this.readingThreads, ...older];
       }
       const next = result.next_before_sequence;
       if (more) {
@@ -190,7 +212,7 @@ export class ThreadsModel {
       }
       this.error = null;
     } catch { this.error = failure().message; }
-    finally { this.loading = false; }
+    finally { this.loading = false; this.listRequest = null; }
     return this.threads !== previous || this.listCursor !== previousCursor || this.error !== previousError;
   }
   async restore() {
@@ -204,9 +226,31 @@ export class ThreadsModel {
     return this.loadPage(surface, id, saved?.before ?? null, saved?.back ?? []);
   }
   async toggleHistory(id) {
-    if (this.expanded.has(id)) { this.expanded.delete(id); return; }
-    this.expanded.add(id);
-    await this.ensurePage('mini', id);
+    const opening = !this.expanded.has(id);
+    if (opening) this.expanded.add(id); else this.expanded.delete(id);
+    this.readingVersion++;
+    this.readingThreads = this.visibleThreads.some(thread => this.expanded.has(thread.id)) ? this.visibleThreads : null;
+    if (opening) {
+      await this.ensurePage('mini', id);
+      if (this.expanded.has(id)) await this.refreshLatest('mini', id, true);
+    }
+  }
+  async updateReading() {
+    if (this.pending.has('reading-update')) return false;
+    this.pending.add('reading-update');
+    const version = this.readingVersion;
+    try {
+      if (this.listRequest) await this.listRequest.catch(() => {});
+      if (version !== this.readingVersion) return false;
+      await this.refresh();
+      if (this.error || version !== this.readingVersion) return false;
+      const ids = this.threads.filter(thread => this.expanded.has(thread.id)).map(thread => thread.id);
+      await Promise.all(ids.map(id => this.refreshLatest('mini', id, true)));
+      if (version !== this.readingVersion || ids.some(id => this.pending.has(`mini:${id}`) ||
+        (this.page('mini', id)?.before === null && this.pageError('mini', id)))) return false;
+      if (this.readingPaused) this.readingThreads = this.threads;
+      return true;
+    } finally { this.pending.delete('reading-update'); }
   }
   async selectDetail(id) { this.selected = id; await this.ensurePage('detail', id); }
   async loadPage(surface, id, before, back) {
@@ -228,20 +272,30 @@ export class ThreadsModel {
       return previousError !== message;
     } finally { if (this.requests.get(key) === token) this.pending.delete(key); }
   }
-  async refreshLatest(surface, id) {
+  async refreshLatest(surface, id, explicit = false) {
     const page = this.page(surface, id), key = `${surface}:${id}`;
+    if (surface === 'mini' && this.expanded.has(id) && !explicit) return false;
     if (!page || page.before !== null || this.pending.has(key) || (!this.hasUpdates(surface, id) && !this.errors.has(key))) return false;
     return this.loadPage(surface, id, null, page.back);
   }
   async older(surface, id) {
     const page = this.page(surface, id);
-    if (page?.next_before_sequence) return this.loadPage(surface, id, page.next_before_sequence, [...page.back, page.before]);
+    if (page?.next_before_sequence) {
+      if (surface === 'mini') this.readingVersion++;
+      return this.loadPage(surface, id, page.next_before_sequence, [...page.back, page.before]);
+    }
   }
   async newer(surface, id) {
     const page = this.page(surface, id);
-    if (page?.back.length) return this.loadPage(surface, id, page.back.at(-1), page.back.slice(0, -1));
+    if (page?.back.length) {
+      if (surface === 'mini') this.readingVersion++;
+      return this.loadPage(surface, id, page.back.at(-1), page.back.slice(0, -1));
+    }
   }
-  async latest(surface, id) { return this.loadPage(surface, id, null, []); }
+  async latest(surface, id) {
+    if (surface === 'mini') this.readingVersion++;
+    return this.loadPage(surface, id, null, []);
+  }
   expose(surface, id, sequence, entered) {
     // Compatibility for previously recorded sparse exposure. Current UI controls
     // use explicit markRead; rendering, polling and hovering never call this.

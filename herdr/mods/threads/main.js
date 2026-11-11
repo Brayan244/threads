@@ -17,6 +17,7 @@ export default class Threads extends View {
     // Herdr's block props are authoritative; GPUI View.init may receive {}.
     config = { ...(config ?? {}), ...(props() ?? {}) };
     this.revealed = new Set(); this.width = 620; this.linkError = null;
+    this.rowHeights = new Map();
     this.role = config.role ?? 'combined';
     this.pageSpace = config.pageSpace;
     this.resourceConfig = { cli: config.cli ?? 'threads', channel: config.channel ?? 'default',
@@ -254,8 +255,37 @@ export default class Threads extends View {
     if (expanded) card.child(renderReading(this, 'mini', id, t));
     return card;
   }
+  animatedRows(t) {
+    let top = 0;
+    const rows = this.model.visibleThreads.map(thread => {
+      const row = this.card(thread, t).absolute().left(0).top(top).w_full().bg(t.chrome)
+        .spring('top', { response: 280, damping: 1 })
+        .on_size_change(({ height }, cx) => {
+          if (Number.isFinite(height) && height > 0 && Math.abs(height - (this.rowHeights.get(thread.id) ?? 30)) > 0.5) {
+            this.rowHeights.set(thread.id, Math.ceil(height));
+            cx.notify();
+          }
+        });
+      top += this.rowHeights.get(thread.id) ?? 30;
+      return row;
+    });
+    // Absolute, keyed targets let GPUI retarget motion without script-side frames.
+    // Real row measurements keep expanded histories and the scroll extent intact.
+    return div().id('threads-motion').relative().w_full().h(top).flex_none().children(rows);
+  }
   sidebar(t) {
-    const model = this.model, compact = this.role === 'section';
+    const model = this.model, compact = this.role === 'section', threads = model.visibleThreads;
+    const status = model.error ?? this.stateError ?? this.linkError;
+    const pending = model.hasPendingUpdates || (model.readingPaused && Boolean(status));
+    const hint = status ?? (pending ? 'Hay avances nuevos. Actualizar conserva los historiales abiertos.' : 'Actualizar Threads');
+    const update = (compact ? iconControl('refresh-threads', '↻', 'Actualizar Threads',
+      (_e, cx) => this.task(cx, () => model.updateReading()), t) : control('refresh-threads', 'Actualizar',
+      (_e, cx) => this.task(cx, () => model.updateReading()), t).accessibility_label('Actualizar Threads'))
+      .tooltip(hint).disabled(model.pending.has('reading-update'));
+    const refresh = h_flex().gap(2).items_center()
+      .child(div().id('pending-thread-updates').w(8).flex_none().text_size(12).text_color(t.ansi1)
+        .child(pending ? '·' : '').tooltip(hint).accessibility_label(pending ? hint : ''))
+      .child(update);
     const sidebar = v_flex().id('threads-sidebar').min_h(0).gap(compact ? 0 : 6);
     if (this.role === 'sidebar' || compact) sidebar.size_full();
     else if (this.width >= 500) sidebar.w(260).flex_none();
@@ -263,20 +293,20 @@ export default class Threads extends View {
     if (compact) {
       sidebar.child(h_flex().id('threads-heading').h(31).flex_none().pl(16).pr(10).items_center().justify_between()
         .child(div().text_size(11.5).font_medium().text_color(t.dim).child('Threads'))
-        .child(iconControl('refresh-threads', '↻', 'Actualizar Threads', (_e, cx) => this.task(cx, () => model.refresh()), t)));
+        .child(refresh));
     } else {
       sidebar.child(h_flex().flex_none().px(12).py(10).items_center().justify_between()
         .child(div().text_size(19).font_semibold().child('Threads'))
-        .child(control('refresh-threads', 'Actualizar', (_e, cx) => this.task(cx, () => model.refresh()), t)
-          .accessibility_label('Actualizar Threads').tooltip('Actualizar Threads')));
+        .child(refresh));
       sidebar.child(div().flex_none().px(12).text_size(12).text_color(t.muted).child('Trabajos y últimos avances'));
     }
     const cards = v_flex().id('threads-cards').flex_1().min_h(0).overflow_y_scrollbar();
     if (compact) cards.px(8);
-    if (model.error) cards.child(div().flex_none().px(12).text_size(13).child(model.error));
-    if (this.stateError || this.linkError) cards.child(div().flex_none().px(12).text_size(13).child(this.stateError ?? this.linkError));
-    cards.children(model.threads.map(thread => this.card(thread, t)));
-    if (!model.threads.length) cards.child(div().flex_none().p(12).text_size(compact ? 12 : 14).text_color(t.muted)
+    if (model.error && !model.readingPaused) cards.child(div().flex_none().px(12).text_size(13).child(model.error));
+    if ((this.stateError || this.linkError) && !model.readingPaused) cards.child(div().flex_none().px(12).text_size(13).child(this.stateError ?? this.linkError));
+    if (compact && threads.length) cards.child(this.animatedRows(t));
+    else cards.children(threads.map(thread => this.card(thread, t)));
+    if (!threads.length) cards.child(div().flex_none().p(12).text_size(compact ? 12 : 14).text_color(t.muted)
       .child(model.loading && model.listHead === null && !model.error ? 'Cargando…' : model.error ? 'Último contenido válido no disponible' : 'Sin trabajos todavía. Abrir el panel no crea uno.'));
     if (model.listCursor !== null) cards.child(control('more-threads', 'Más trabajos',
       (_e, cx) => this.task(cx, () => model.refresh(true)), t));

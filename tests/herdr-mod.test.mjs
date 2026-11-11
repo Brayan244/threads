@@ -22,6 +22,9 @@ const builder = (kind, id) => new Proxy(new Element(kind, id), { get(target, key
   assert.ok(new RegExp(`\\b${key}(?:<[^\\n]*>)?\\s*\\(`).test(nativeTypes), `Unsupported installed GPUI method: ${key}`);
   return (...args) => {
     target.attrs[key] = args[0];
+    if (key === 'spring' || key === 'transition') {
+      (target.attrs.motion ??= {})[args[0]] = { kind: key, ...args[1] };
+    }
     if (['items_center', 'items_start', 'items_stretch'].includes(key)) target.attrs.align_items = key.slice(6);
     return receiver;
   };
@@ -89,13 +92,13 @@ async function setup(config = {}, reset = true) {
   }
   const view = new Threads(), ctx = context();
   view.init(config, ctx.cx);
+  await ctx.flush(); // Finish startup before seeding a specific rendered-order fixture.
   view.model.threads = [A, B].map((id, index) => ({ id, title: `Trabajo ${index}`, summary: 'Avance',
     latest_sequence: index + 1, event_count: 1, session_count: 1, references: [] }));
   view.model.client.show = async id => ({ thread: view.model.threads.find(t => t.id === id), events: [{
     thread_id: id, sequence: id === A ? 1 : 2, body: 'Untrusted ${code} <script>', summary: 'Untrusted ${code} <script>', kind: 'progress',
     evidence: [{ kind: 'document', reference: 'https://example.test/plan', availability: 'unknown' }],
   }], next_before_sequence: null });
-  await ctx.flush();
   return { view, ...ctx };
 }
 
@@ -117,6 +120,72 @@ test('embedded section fills its sidebar slot with an independent scroll list an
   assert.equal(find(tree, 'threads-root').attrs.bg, '#181818', 'matches the existing sidebar chrome');
   assert.equal(flatten(tree).some(node => node.attrs.id === 'threads-detail'), false);
   assert.deepEqual(nativeCommands, []);
+});
+
+test('compact reading holds motion until explicit update retargets springs without closing history', async () => {
+  const { view, cx, flush, timers, notifications } = await setup({ role: 'section' });
+  await view.model.toggleHistory(A); await view.model.selectDetail(B);
+  let tree = view.render(cx);
+  assert.equal(typeof find(tree, `card-${A}`).attrs.on_size_change, 'function');
+  find(tree, `card-${A}`).attrs.on_size_change({ width: 240, height: 96 }, cx);
+  tree = view.render(cx);
+  assert.equal(find(tree, `card-${A}`).attrs.top, 0);
+  assert.equal(find(tree, `card-${B}`).attrs.top, 96);
+  assert.equal(find(tree, 'threads-motion').attrs.h, 126);
+  const mini = view.model.page('mini', A), detail = view.model.page('detail', B);
+  view.model.client.list = async () => ({ threads: [{ ...view.model.thread(B), latest_sequence: 3 }], next_before_sequence: null });
+  view.poll(cx); await flush();
+  tree = view.render(cx);
+  assert.deepEqual(view.model.threads.map(thread => thread.id), [B, A]);
+  assert.equal(find(tree, `card-${A}`).attrs.top, 0);
+  assert.equal(find(tree, `card-${B}`).attrs.top, 96);
+  assert.equal(text(find(tree, 'pending-thread-updates')), '·');
+  for (const id of [A, B]) {
+    const row = find(tree, `card-${id}`);
+    assert.ok(Object.hasOwn(row.attrs, 'absolute'));
+    assert.deepEqual(row.attrs.motion.top, { kind: 'spring', response: 280, damping: 1 });
+  }
+  assert.equal(find(tree, 'threads-motion').attrs.h, 126);
+  assert.equal(view.model.page('mini', A), mini);
+  assert.equal(view.model.page('detail', B), detail);
+  assert.equal(view.model.selected, B);
+  assert.deepEqual([...view.model.expanded], [A]);
+  assert.equal(view.model.seen.size, 0);
+  assert.equal(view.model.isSeen(B, 3), false);
+  assert.deepEqual(timers.map(timer => timer.ms), [5000], 'no script-side frame timer');
+  const count = notifications();
+  view.poll(cx); await flush();
+  assert.equal(notifications(), count, 'an unchanged poll does not restart script work');
+  find(tree, 'refresh-threads').handlers.click({}, cx); await flush();
+  tree = view.render(cx);
+  assert.equal(find(tree, `card-${B}`).attrs.top, 0);
+  assert.equal(find(tree, `card-${A}`).attrs.top, 30);
+  assert.equal(text(find(tree, 'pending-thread-updates')), '');
+  assert.deepEqual([...view.model.expanded], [A]);
+  assert.equal(view.model.page('mini', A), mini);
+});
+
+test('compact motion measures real expanded heights and ignores hidden, invalid and unchanged sizes', async () => {
+  const { view, cx, notifications } = await setup({ role: 'section' });
+  let tree = view.render(cx);
+  const measure = find(tree, `card-${A}`).attrs.on_size_change;
+  assert.equal(typeof measure, 'function');
+  const count = notifications();
+  for (const height of [0, -1, NaN, Infinity, 30, 30.1]) measure({ width: 240, height }, cx);
+  assert.equal(notifications(), count);
+  measure({ width: 240, height: 60 }, cx);
+  assert.equal(notifications(), count + 1);
+  measure({ width: 240, height: 60 }, cx);
+  assert.equal(notifications(), count + 1);
+  tree = view.render(cx);
+  assert.equal(find(tree, `card-${B}`).attrs.top, 60);
+  assert.equal(find(tree, 'threads-motion').attrs.h, 90);
+  measure({ width: 180, height: 75 }, cx);
+  tree = view.render(cx);
+  assert.equal(find(tree, `card-${B}`).attrs.top, 75);
+  assert.equal(find(tree, 'threads-motion').attrs.h, 105);
+  measure({ width: 180, height: 30 }, cx);
+  assert.equal(find(view.render(cx), `card-${B}`).attrs.top, 30);
 });
 
 test('section uses native-style one-line rows, neutral separate controls and no summary card', async () => {
@@ -433,6 +502,7 @@ test('reader keeps the original long body behind a deliberate expansion', async 
 
 test('unchanged polling has no notify, storage write, loading blink or overlapping request', async () => {
   const {view,cx,flush,timers,notifications}=await setup({role:'section'});
+  await view.model.refresh(); // Establish activity order before measuring unchanged polls.
   const before=notifications(),writes=storageWrites;
   const rows=view.model.threads;
   for(let i=0;i<3;i++){timers[0].fn(cx);await flush();}
@@ -451,7 +521,7 @@ test('unchanged polling has no notify, storage write, loading blink or overlappi
   release();await flush();
 });
 
-test('five-second polling updates an expanded latest page in place, without Novedades or implicit reading', async () => {
+test('five-second polling signals pending work without moving history or marking unseen advances read', async () => {
   const {view,cx,flush,timers}=await setup({role:'section'});
   find(view.render(cx),`history-${A}`).handlers.click({},cx);await flush();
   const readingId=`reading-mini-${A}-latest`;
@@ -461,14 +531,37 @@ test('five-second polling updates an expanded latest page in place, without Nove
   timers[0].fn(cx);await flush();
   let tree=view.render(cx);
   assert.deepEqual(find(tree,readingId).attrs,before,'scroll identity and style stay stable');
-  assert.deepEqual(view.model.page('mini',A).events.map(event=>event.sequence),[3,1]);
+  assert.deepEqual(view.model.page('mini',A).events.map(event=>event.sequence),[1]);
   assert.doesNotMatch(text(tree),/Novedades|Ver recientes/);
-  assert.equal(find(tree,`unread-mini-${A}-3`).attrs.text_color,'#d06b75');
+  assert.equal(text(find(tree,'pending-thread-updates')),'·');
   assert.equal(view.model.isSeen(A,3),false);
   find(tree,`mark-read-${A}`).handlers.click({},cx);
   assert.equal(view.model.isSeen(A,1),true);
+  assert.equal(view.model.isSeen(A,3),false,'pending advances were not displayed');
+  find(tree,'refresh-threads').handlers.click({},cx);await flush();
+  tree=view.render(cx);
+  assert.deepEqual(view.model.page('mini',A).events.map(event=>event.sequence),[3,1]);
+  assert.equal(find(tree,`unread-mini-${A}-3`).attrs.text_color,'#d06b75');
+  find(tree,`mark-read-${A}`).handlers.click({},cx);
   assert.equal(view.model.isSeen(A,3),true);
   assert.equal(view.model.isSeen(A,4),false);
+});
+
+test('background refresh errors stay in the fixed header while reading, not above the history', async () => {
+  const {view,cx,flush,timers}=await setup({role:'section'});
+  find(view.render(cx),`history-${A}`).handlers.click({},cx);await flush();
+  let tree=view.render(cx);
+  const page=view.model.page('mini',A), before=text(find(tree,`reading-mini-${A}-latest`));
+  const children=find(tree,'threads-cards').nodes.map(node=>node.attrs?.id);
+  view.model.client.list=async()=>{throw Error('private diagnostics');};
+  timers[0].fn(cx);await flush();
+  tree=view.render(cx);
+  assert.equal(view.model.page('mini',A),page);
+  assert.equal(text(find(tree,`reading-mini-${A}-latest`)),before);
+  assert.deepEqual(find(tree,'threads-cards').nodes.map(node=>node.attrs?.id),children);
+  assert.equal(text(find(tree,'pending-thread-updates')),'·');
+  assert.match(find(tree,'refresh-threads').attrs.tooltip,/No se pudo/);
+  assert.doesNotMatch(text(tree),/No se pudo|private diagnostics/);
 });
 
 test('shared manual read cursors never move backwards when a stale copy persists', async () => {
@@ -595,7 +688,7 @@ test('session reference controls show both explicit links and distinct origins w
   assert.doesNotMatch(text(tree), new RegExp(A));
 });
 
-test('native More traverses refreshed gaps while keeping card order, selected detail and reading anchors', async () => {
+test('native More keeps held histories still and explicit Update applies queued arrivals', async () => {
   const { view, cx, flush } = await setup();
   const rows = new Map();
   const id = sequence => sequence === 40 ? A : sequence === 39 ? B : `00000000-0000-4000-8000-${String(sequence).padStart(12, '0')}`;
@@ -612,13 +705,19 @@ test('native More traverses refreshed gaps while keeping card order, selected de
   await click('refresh-threads'); await click(`history-${A}`); await click(`detail-${B}`);
   const reading = find(view.render(cx), `reading-detail-${B}-latest`).attrs;
   const mini = view.model.page('mini', A), detail = view.model.page('detail', B);
-  add(41, 85); await click('refresh-threads');
+  add(41, 85); view.poll(cx); await flush();
   let pages = 0;
   while (view.model.listCursor !== null && pages++ < 10) await click('more-threads');
-  const tree = view.render(cx);
+  let tree = view.render(cx);
+  assert.equal(flatten(tree).filter(node => node.attrs.id?.startsWith('card-')).length, 40);
+  assert.equal(view.model.visibleThreads[0].id, A);
+  await click('refresh-threads');
+  tree = view.render(cx);
   assert.equal(view.model.threads.length, 85);
   assert.equal(flatten(tree).filter(node => node.attrs.id?.startsWith('card-')).length, 85);
-  assert.equal(view.model.threads[0].id, A);
+  assert.equal(view.model.threads[0].id, id(85));
+  assert.deepEqual(flatten(tree).filter(node => node.attrs.id?.startsWith('card-')).map(node => node.attrs.id),
+    Array.from({ length: 85 }, (_, index) => `card-${id(85 - index)}`));
   assert.equal(view.model.selected, B);
   assert.equal(view.model.page('mini', A), mini);
   assert.equal(view.model.page('detail', B), detail);

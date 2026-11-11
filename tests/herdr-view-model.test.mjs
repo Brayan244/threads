@@ -110,6 +110,28 @@ test('read-through snapshot parsing rejects invalid marks and merges monotonical
   assert.deepEqual(model.snapshot().readThrough,[[A,30]]);
 });
 
+test('latest activity raises existing threads while preserving reading state and unchanged row identity', async () => {
+  const { model, client } = fixture();
+  const C = '33333333-3333-4333-8333-333333333333';
+  const D = '44444444-4444-4444-8444-444444444444';
+  client.list = async () => ({ threads: [thread(A, 30), thread(B, 20)], next_before_sequence: null });
+  await model.refresh(); await model.toggleHistory(A); await model.selectDetail(B);
+  const originalA = model.thread(A), mini = model.page('mini', A), detail = model.page('detail', B);
+  client.list = async () => ({ threads: [thread(B, 33), thread(C, 32), thread(D, 31), thread(A, 30)], next_before_sequence: null });
+  assert.equal(await model.refresh(), true);
+  assert.deepEqual(model.threads.map(row => row.id), [B, C, D, A]);
+  assert.equal(model.thread(B).latest_sequence, 33, 'an existing thread update leads new arrivals with older activity');
+  assert.equal(model.thread(A), originalA, 'unchanged rows retain their identity');
+  assert.equal(model.page('mini', A), mini);
+  assert.equal(model.page('detail', B), detail);
+  assert.equal(model.selected, B);
+  assert.deepEqual([...model.expanded], [A]);
+  assert.equal(model.seen.size, 0);
+  const list = model.threads;
+  assert.equal(await model.refresh(), false);
+  assert.equal(model.threads, list, 'unchanged polls do not recreate or reorder the list');
+});
+
 test('unchanged refreshes retain list/page identity and report no presentation change', async () => {
   const {model}=fixture();
   await model.refresh(); await model.selectDetail(A);
@@ -120,7 +142,7 @@ test('unchanged refreshes retain list/page identity and report no presentation c
   assert.equal(model.page('detail',A),page);
 });
 
-test('live refresh updates only changed latest pages, preserving historical pages and last good data', async () => {
+test('open mini histories hold background changes until explicit update, preserving historical and last-good pages', async () => {
   const {model,client,calls}=fixture();
   await model.refresh(); await model.toggleHistory(A); await model.selectDetail(B);
   await model.older('detail',B);
@@ -128,7 +150,9 @@ test('live refresh updates only changed latest pages, preserving historical page
   client.list=async()=>({threads:[thread(A,31),thread(B,31)],next_before_sequence:null});
   client.show=async(id,before)=>{calls.push(['show',id,before]);return {thread:thread(id,31),events:[event(31,id),event(30,id)],next_before_sequence:30};};
   await model.refresh();
-  assert.equal(await model.refreshLatest('mini',A),true);
+  assert.equal(await model.refreshLatest('mini',A),false, 'background updates cannot insert text into an open mini history');
+  assert.deepEqual(model.page('mini',A).events.map(event=>event.sequence),[30]);
+  await model.updateReading();
   assert.deepEqual(model.page('mini',A).events.map(event=>event.sequence),[31,30]);
   assert.equal(await model.refreshLatest('detail',B),false);
   assert.equal(model.page('detail',B),historical);
@@ -136,9 +160,172 @@ test('live refresh updates only changed latest pages, preserving historical page
   const good=model.page('mini',A);
   client.list=async()=>({threads:[thread(A,32)],next_before_sequence:null});
   await model.refresh(); client.show=async()=>{throw Error('private');};
-  assert.equal(await model.refreshLatest('mini',A),true,'first failure changes the error presentation');
+  assert.equal(await model.refreshLatest('mini',A),false,'the paused page is not fetched in the background');
+  await model.updateReading();
   assert.equal(model.page('mini',A),good);
-  assert.equal(await model.refreshLatest('mini',A),false,'the same repeated error is not a new redraw');
+  assert.match(model.pageError('mini',A), /No se pudo/);
+  assert.equal(await model.refreshLatest('mini',A),false,'the failed manual refresh does not enable automatic retries');
+});
+
+test('multiple open histories hold list snapshots and unread work until the last visible history closes', async () => {
+  const { model, client } = fixture();
+  client.list = async () => ({ threads: [thread(A, 30), thread(B, 20)], next_before_sequence: null });
+  await model.refresh(); await model.toggleHistory(A); await model.toggleHistory(B);
+  const visible = model.visibleThreads, miniA = model.page('mini', A), miniB = model.page('mini', B);
+  client.list = async () => ({ threads: [thread(B, 31), thread(A, 30)], next_before_sequence: null });
+  await model.refresh();
+  assert.deepEqual(model.threads.map(row => row.id), [B, A], 'live metadata continues to arrive');
+  assert.equal(model.visibleThreads, visible, 'visible rows and their metadata are the original snapshot');
+  assert.equal(model.readingPaused, true);
+  assert.equal(model.hasPendingUpdates, true);
+  assert.equal(await model.refreshLatest('mini', B), false);
+  assert.equal(model.page('mini', A), miniA);
+  assert.equal(model.page('mini', B), miniB);
+  assert.equal(model.markRead(B), true);
+  assert.equal(model.isSeen(B, 30), true, 'the visible loaded mini snapshot may be marked read');
+  assert.equal(model.isSeen(B, 31), false, 'unshown pending advances stay unread');
+  await model.toggleHistory(A);
+  assert.equal(model.readingPaused, true);
+  assert.deepEqual(model.visibleThreads.map(row => row.id), [A, B]);
+  await model.toggleHistory(B);
+  assert.equal(model.readingPaused, false);
+  assert.equal(model.visibleThreads, model.threads);
+  assert.equal(model.hasPendingUpdates, false);
+  client.show = async id => ({ thread: thread(id, 31), events: [event(31, id)], next_before_sequence: null });
+  await model.toggleHistory(B);
+  assert.equal(model.page('mini', B).loadedLatest, 31, 'reopening refreshes a stale latest page before holding it');
+});
+
+test('explicit update rebases open reading without closing it or navigating away from historical pages', async () => {
+  const { model, client } = fixture();
+  client.list = async () => ({ threads: [thread(A, 30), thread(B, 20)], next_before_sequence: null });
+  await model.refresh(); await model.toggleHistory(A); await model.toggleHistory(B); await model.older('mini', A);
+  const historical = model.page('mini', A);
+  client.list = async () => ({ threads: [thread(B, 33), thread(A, 32)], next_before_sequence: null });
+  client.show = async id => ({ thread: thread(id, 33), events: [event(33, id)], next_before_sequence: null });
+  await model.updateReading();
+  assert.deepEqual(model.visibleThreads.map(row => row.id), [B, A]);
+  assert.equal(model.readingPaused, true);
+  assert.deepEqual([...model.expanded], [A, B]);
+  assert.equal(model.page('mini', A), historical);
+  assert.equal(model.page('mini', B).loadedLatest, 33);
+  assert.equal(model.hasPendingUpdates, false, 'intentional historical pages are not treated as failed refreshes');
+  client.list = async () => ({ threads: [thread(A, 34), thread(B, 33)], next_before_sequence: null });
+  await model.refresh();
+  assert.deepEqual(model.visibleThreads.map(row => row.id), [B, A], 'an explicit update starts a new protected snapshot');
+  assert.equal(model.hasPendingUpdates, true);
+});
+
+test('a failed explicit list update preserves reading and a successful retry applies pending work', async () => {
+  const { model, client } = fixture();
+  await model.refresh(); await model.toggleHistory(A);
+  const held = model.visibleThreads, mini = model.page('mini', A);
+  client.list = async () => { throw Error('private'); };
+  await model.updateReading();
+  assert.equal(model.visibleThreads, held);
+  assert.equal(model.page('mini', A), mini);
+  assert.match(model.error, /No se pudo/);
+  client.list = async () => ({ threads: [thread(A, 31)], next_before_sequence: null });
+  client.show = async () => ({ thread: thread(A, 31), events: [event(31)], next_before_sequence: null });
+  await model.updateReading();
+  assert.equal(model.error, null);
+  assert.equal(model.page('mini', A).loadedLatest, 31);
+  assert.equal(model.hasPendingUpdates, false);
+});
+
+test('manual update joins a background list read and ignores duplicate update clicks', async () => {
+  const { model, client } = fixture();
+  await model.refresh(); await model.toggleHistory(A);
+  let resolve, reads = 0;
+  client.list = () => ++reads === 1 ? new Promise(done => { resolve = done; }) :
+    Promise.resolve({ threads: [thread(A, 32)], next_before_sequence: null });
+  client.show = async () => ({ thread: thread(A, 32), events: [event(32)], next_before_sequence: null });
+  const polling = model.refresh(), update = model.updateReading(), duplicate = model.updateReading();
+  resolve({ threads: [thread(A, 31)], next_before_sequence: null });
+  await Promise.all([polling, update, duplicate]);
+  assert.equal(reads, 2);
+  assert.equal(model.visibleThreads.find(row => row.id === A).latest_sequence, 32);
+  assert.equal(model.page('mini', A).loadedLatest, 32);
+  assert.equal(model.hasPendingUpdates, false);
+});
+
+test('a failed mini update keeps the protected rows and visible read boundary until retry succeeds', async () => {
+  const { model, client } = fixture();
+  await model.refresh(); await model.toggleHistory(A);
+  const held = model.visibleThreads, good = model.page('mini', A);
+  client.list = async () => ({ threads: [thread(A, 31)], next_before_sequence: null });
+  client.show = async () => { throw Error('private'); };
+  await model.updateReading();
+  assert.equal(model.visibleThreads, held);
+  assert.equal(model.page('mini', A), good);
+  assert.equal(model.hasPendingUpdates, true);
+  assert.equal(model.markRead(A), true);
+  assert.equal(model.isSeen(A, 31), false);
+  client.show = async () => ({ thread: thread(A, 31), events: [event(31)], next_before_sequence: null });
+  await model.updateReading();
+  assert.equal(model.visibleThreads.find(row => row.id === A).latest_sequence, 31);
+  assert.equal(model.hasPendingUpdates, false);
+});
+
+test('late manual refreshes cannot release a reading snapshot opened after the refresh began', async () => {
+  const { model, client } = fixture();
+  await model.refresh(); await model.toggleHistory(A);
+  let resolve;
+  client.list = () => new Promise(done => { resolve = done; });
+  const pending = model.updateReading();
+  await model.toggleHistory(A); await model.toggleHistory(B);
+  const held = model.visibleThreads;
+  resolve({ threads: [thread(B, 31)], next_before_sequence: null });
+  await pending;
+  assert.equal(model.visibleThreads, held);
+  assert.equal(model.hasPendingUpdates, true);
+  assert.equal(model.page('mini', B).loadedLatest, 30);
+});
+
+test('a manual refresh started before mini pagination cannot displace the newly chosen historical page', async () => {
+  const { model, client } = fixture();
+  await model.refresh(); await model.toggleHistory(A);
+  const held = model.visibleThreads;
+  let resolve;
+  client.list = () => new Promise(done => { resolve = done; });
+  const update = model.updateReading();
+  await model.older('mini', A);
+  const historical = model.page('mini', A);
+  resolve({ threads: [thread(A, 31)], next_before_sequence: null });
+  await update;
+  assert.equal(model.visibleThreads, held);
+  assert.equal(model.page('mini', A), historical);
+  assert.equal(model.page('mini', A).before, 30);
+});
+
+test('restored offscreen expansions do not freeze a list with no visible reading history', async () => {
+  const { client } = fixture();
+  client.list = async () => ({ threads: [thread(B, 20)], next_before_sequence: null });
+  const model = new ThreadsModel(client, { expanded: [A] });
+  await model.refresh();
+  assert.equal(model.readingPaused, false);
+  client.list = async () => ({ threads: [thread(B, 21)], next_before_sequence: null });
+  await model.refresh();
+  assert.equal(model.visibleThreads[0].latest_sequence, 21);
+  await model.toggleHistory(B);
+  assert.equal(model.readingPaused, true);
+  await model.toggleHistory(B);
+  assert.equal(model.readingPaused, false, 'an offscreen restored ID cannot keep the list paused');
+});
+
+test('Update refreshes a restored expansion that becomes visible with queued arrivals', async () => {
+  const { client } = fixture();
+  client.list = async () => ({ threads: [thread(A, 30)], next_before_sequence: null });
+  const model = new ThreadsModel(client, { expanded: [B] });
+  await model.refresh(); await model.ensurePage('mini', B); await model.toggleHistory(A);
+  client.list = async () => ({ threads: [thread(B, 31), thread(A, 30)], next_before_sequence: null });
+  client.show = async id => ({ thread: thread(id, id === B ? 31 : 30), events: [event(id === B ? 31 : 30, id)], next_before_sequence: null });
+  await model.refresh();
+  assert.deepEqual(model.visibleThreads.map(row => row.id), [A]);
+  await model.updateReading();
+  assert.deepEqual(model.visibleThreads.map(row => row.id), [B, A]);
+  assert.equal(model.page('mini', B).loadedLatest, 31);
+  assert.equal(model.hasPendingUpdates, false);
 });
 
 test('older page, selected detail, expansion and last good data survive arrival and CLI failure', async () => {
@@ -191,6 +378,22 @@ async function exhaustList(model) {
   assert.equal(model.listCursor, null, 'pagination must eventually exhaust');
 }
 
+test('More can append older rows below protected reading without exposing queued head arrivals', async () => {
+  const { model, add, id } = keysetFixture(40);
+  await model.refresh(); await model.toggleHistory(id(40));
+  const original = model.visibleThreads.map(row => row.id), page = model.page('mini', id(40));
+  add(41, 65); await model.refresh(); await exhaustList(model);
+  assert.deepEqual(model.visibleThreads.slice(0, original.length).map(row => row.id), original);
+  assert.equal(model.visibleThreads.length, 40);
+  assert.equal(model.visibleThreads.at(-1).id, id(1));
+  assert.equal(model.threads.length, 65);
+  assert.equal(model.hasPendingUpdates, true);
+  assert.equal(model.page('mini', id(40)), page);
+  await model.toggleHistory(id(40));
+  assert.equal(model.visibleThreads.length, 65);
+  assert.equal(model.visibleThreads[0].id, id(65));
+});
+
 test('refresh catch-up covers >20 arrivals without losing independent older-list progress or reading state', async () => {
   const { model, rows, calls, add, id, setFailure } = keysetFixture(60);
   await model.refresh(); await model.refresh(true);
@@ -211,7 +414,9 @@ test('refresh catch-up covers >20 arrivals without losing independent older-list
   assert.equal(model.error, null);
   assert.equal(model.threads.length, rows.size);
   assert.equal(new Set(model.threads.map(row => row.id)).size, rows.size);
-  assert.deepEqual(model.threads.slice(0, order.length).map(row => row.id), order);
+  assert.deepEqual(model.threads.map(row => row.id), Array.from({ length: rows.size }, (_, index) => id(rows.size - index)),
+    'catch-up pages fill their original head gap above existing threads, not below them');
+  assert.deepEqual(model.threads.filter(row => order.includes(row.id)).map(row => row.id), order);
   assert.equal(calls.filter(before => before === olderCursor).length, 1, 'saved older traversal resumes once');
   assert.equal(model.page('mini', id(60)), mini);
   assert.equal(model.page('detail', id(59)), detail);
@@ -235,7 +440,11 @@ test('a known thread becoming active cannot terminate an uncovered refresh gap',
   assert.equal(model.threads.length, rows.size);
   assert.ok(model.thread(id(41)), 'known IDs do not prove that a numeric interval was covered');
   assert.equal(model.thread(id(39)).latest_sequence, 61);
-  assert.equal(model.threads[0].id, id(40));
+  assert.equal(model.threads[0].id, id(40), 'the most recent update leads regardless of creation time');
+  assert.ok(model.threads.findIndex(row => row.id === id(39)) < model.threads.findIndex(row => row.id === id(60)),
+    'an existing thread also rises when discovered inside a catch-up page');
+  const sequences = model.threads.map(row => row.latest_sequence);
+  assert.deepEqual(sequences, [...sequences].sort((a, b) => b - a));
   assert.equal(calls.filter(before => before === 21).length, 1);
   // A later refresh after exhaustion must also expose a fresh multi-page gap.
   add(82, 125); await model.refresh(); await exhaustList(model);
@@ -397,16 +606,29 @@ test('real CLI keyset pages keep refreshed arrivals reachable alongside an unfin
     for (let sequence = 1; sequence <= 45; sequence++) ids.push(record(sequence).thread_id);
     const model = new ThreadsModel(createClient(async (command, args) => ({ code: 0, stderr: '', stdout:
       execFileSync(process.execPath, [command, ...args], { env, timeout: 10000, encoding: 'utf8' }) }), { cli, dataDir }));
-    await model.refresh(); await model.refresh(true);
-    const order = model.threads.map(row => row.id);
+    await model.refresh(); await model.refresh(true); await model.toggleHistory(ids[44]);
+    const held = model.visibleThreads.map(row => row.id), reading = model.page('mini', ids[44]);
     for (let sequence = 46; sequence <= 70; sequence++) ids.push(record(sequence).thread_id);
-    record(71, ids[44]); // An already-loaded identity moves into a refreshed page.
+    record(71, ids[25]); // A lower, already-loaded thread receives the newest advance.
     await model.refresh();
+    assert.equal(model.threads[0].id, ids[25], 'real CLI activity raises a lower existing thread');
     for (let sequence = 72; sequence <= 96; sequence++) ids.push(record(sequence).thread_id);
     await model.refresh(); await exhaustList(model);
     assert.equal(model.threads.length, ids.length);
     assert.deepEqual(new Set(model.threads.map(row => row.id)), new Set(ids));
-    assert.deepEqual(model.threads.slice(0, order.length).map(row => row.id), order);
+    assert.equal(model.threads[0].id, ids.at(-1));
+    const sequences = model.threads.map(row => row.latest_sequence);
+    assert.deepEqual(sequences, [...sequences].sort((a, b) => b - a));
+    assert.equal(model.thread(ids[25]).latest_sequence, 71);
+    assert.deepEqual(model.visibleThreads.slice(0, held.length).map(row => row.id), held);
+    assert.equal(model.page('mini', ids[44]), reading);
+    assert.equal(model.hasPendingUpdates, true);
+    assert.equal(model.markRead(ids[25]), true);
+    assert.equal(model.isSeen(ids[25], 71), false, 'real pending records remain unread');
+    await model.updateReading();
+    assert.equal(model.visibleThreads, model.threads);
+    assert.equal(model.hasPendingUpdates, false);
+    assert.deepEqual([...model.expanded], [ids[44]]);
     assert.equal(model.seen.size, 0);
   } finally { await rm(temp, { recursive: true, force: true }); }
 });
